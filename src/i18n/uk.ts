@@ -95,7 +95,8 @@ export const uk: Messages = {
 
   no_permissions: "У вас немає прав для додавання чи редагування гіфок. Ви можете лише шукати.",
 
-  join_community: "Приєднайтесь до спільноти",
+  join_community:   "Приєднайтесь до спільноти",
+  inline_join_btn:  "🔍 Пошукати ці гіфки",
 
   lang_select: "🌐 Оберіть мову:",
   lang_set:    "✅ Мову встановлено.",

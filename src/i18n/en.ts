@@ -93,7 +93,8 @@ export const en = {
 
   no_permissions: "You don't have permission to add or edit GIFs. You can only search.",
 
-  join_community: "Join a community",
+  join_community:   "Join a community",
+  inline_join_btn:  "🔍 Use these GIFs",
 
   lang_select: "🌐 Select language:",
   lang_set:    "✅ Language set.",

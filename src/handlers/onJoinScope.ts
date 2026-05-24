@@ -1,5 +1,5 @@
 import { MyContext } from "../session.js";
-import { consumeInviteToken, getScope } from "../scopes.js";
+import { consumeInviteToken, getScope, addUserToScope } from "../scopes.js";
 
 export async function onJoinScope(ctx: MyContext): Promise<void> {
   const text = ctx.message?.text ?? "";
@@ -29,4 +29,16 @@ export async function onJoinScope(ctx: MyContext): Promise<void> {
   ctx.session.activeScopeId = scopeId;
 
   await ctx.reply(ctx.t("join_success", { name: scope?.name ?? scopeId }));
+}
+
+/** Handles /start scope_<scopeId> — direct permanent join from inline GIF button. */
+export async function onDirectJoinScope(ctx: MyContext, scopeId: string): Promise<void> {
+  const scope = await getScope(scopeId);
+  if (!scope) {
+    await ctx.reply(ctx.t("join_invalid"));
+    return;
+  }
+  await addUserToScope(ctx.from!.id, scopeId);
+  ctx.session.activeScopeId = scopeId;
+  await ctx.reply(ctx.t("join_success", { name: scope.name }));
 }

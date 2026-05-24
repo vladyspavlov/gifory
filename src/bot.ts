@@ -20,7 +20,7 @@ import { onDelete } from "./handlers/onDelete.js";
 import { onBackup } from "./handlers/onBackup.js";
 import { onMyChatMember } from "./handlers/onMyChatMember.js";
 import { onCreateScope } from "./handlers/onCreateScope.js";
-import { onJoinScope } from "./handlers/onJoinScope.js";
+import { onJoinScope, onDirectJoinScope } from "./handlers/onJoinScope.js";
 import { onInvite } from "./handlers/onInvite.js";
 import { onScopes, onScopeSetCallback } from "./handlers/onScopes.js";
 import { onLang, onLangSetCallback } from "./handlers/onLang.js";
@@ -125,6 +125,8 @@ export function createBot(): Bot<MyContext> {
     const payload = ctx.match;
     if (payload?.startsWith("join_")) {
       await onJoinScope(ctx);
+    } else if (payload?.startsWith("scope_")) {
+      await onDirectJoinScope(ctx, payload.slice(6));
     } else {
       await ctx.reply(ctx.t("start_welcome"), { reply_markup: getMainKeyboard(ctx.t) });
     }
