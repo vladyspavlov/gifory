@@ -1,3 +1,4 @@
+import { InlineKeyboard } from "grammy";
 import { MyContext } from "../session.js";
 import { createScope, generateScopeId } from "../scopes.js";
 
@@ -19,8 +20,10 @@ export async function onCreateScope(ctx: MyContext): Promise<void> {
   const scopeId = generateScopeId();
 
   await createScope(scopeId, name, "manual", [userId]);
-
   ctx.session.activeScopeId = scopeId;
 
-  await ctx.reply(ctx.t("create_success", { name }));
+  const keyboard = new InlineKeyboard()
+    .switchInlineCurrent(ctx.t("btn_search_gifs"), "");
+
+  await ctx.reply(ctx.t("create_success", { name }), { reply_markup: keyboard });
 }

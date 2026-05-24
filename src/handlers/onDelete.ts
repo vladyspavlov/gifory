@@ -1,5 +1,6 @@
 import { MyContext } from "../session.js";
 import { deleteGif } from "../meili.js";
+import { promptScopeSelect } from "./onScopes.js";
 
 export async function onDelete(ctx: MyContext): Promise<void> {
   const msg = ctx.message;
@@ -7,7 +8,7 @@ export async function onDelete(ctx: MyContext): Promise<void> {
 
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply(ctx.t("select_scope"));
+    await promptScopeSelect(ctx);
     return;
   }
 

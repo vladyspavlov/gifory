@@ -2,11 +2,12 @@ import { MyContext } from "../session.js";
 import { getTopGifs } from "../stats.js";
 import { gifIndex } from "../meili.js";
 import { getScope } from "../scopes.js";
+import { promptScopeSelect } from "./onScopes.js";
 
 export async function onStats(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply(ctx.t("no_scope_for_stats"));
+    await promptScopeSelect(ctx);
     return;
   }
 

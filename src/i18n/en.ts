@@ -36,11 +36,13 @@ export const en = {
   create_needs_name:   "Specify a community name: /create MyCommunity",
   create_success:
     "✅ Community \"{name}\" created!\n\n" +
-    "Commands:\n• /invite — invite members\n• /scopes — your communities\n• /backup — backup",
+    "Send GIFs to this chat to add them to the archive — include #tags in the caption or enter them when prompted.\n\n" +
+    "• /invite — invite members\n" +
+    "• /backup — save a backup",
 
   join_needs_token:  "Specify invite token: /join <token>",
   join_invalid:      "❌ Invalid or expired token.",
-  join_success:      "✅ You joined \"{name}\"!",
+  join_success:      "✅ You joined \"{name}\"!\nYou can now search their GIFs from any chat.",
 
   invite_needs_scope:  "First select an active community via /scopes or use the command in a group.",
   invite_not_found:    "Community not found.",
@@ -48,15 +50,21 @@ export const en = {
   invite_admin_only:   "Only admins can create invites.",
   invite_link:         "🔗 Invite to \"{name}\":\n\n{link}\n\n⏳ Valid for 24 hours.",
 
-  scopes_none:          "You have no communities.\n\n• /create <name> — create new\n• Or add the bot to your group",
+  scopes_none:          "You have no communities yet.\n\n• /create <name> — create your own\n• Or ask an admin for an invite link",
   scopes_header_active: "📋 Your communities (active: {name}):",
-  scopes_header:        "📋 Your communities — select active:",
+  scopes_header:        "📋 Your communities — tap one to activate:",
   scope_set_active:     "✅ Active community: {name}",
   scope_set:            "✅ Community selected.",
 
   start_welcome:
-    "👋 Gifory — your personal GIF archive.\n\n" +
-    "• /create <name> — create a community\n• /scopes — your communities\n• /help — all commands",
+    "👋 Welcome to Gifory — a GIF archive for your community.\n\n" +
+    "📌 How it works:\n" +
+    "• Admins add GIFs with #tags to the community archive\n" +
+    "• Everyone searches instantly via @giforybot in any chat\n\n" +
+    "🚀 Get started:\n" +
+    "• Got an invite? Tap \"🔍 Use these GIFs\" on any Gifory GIF\n" +
+    "• Starting fresh? /create <name> — build your own collection\n\n" +
+    "/help — all commands",
 
   help:
     "👋 Gifory — GIF archive for your community.\n\n" +
@@ -99,32 +107,33 @@ export const en = {
   lang_select: "🌐 Select language:",
   lang_set:    "✅ Language set.",
 
-  btn_search:       "🔍 Search",
-  btn_tags:         "🏷 Tags",
-  btn_communities:  "📋 Communities",
-  btn_help:         "❓ Help",
-  btn_lang:         "🌐 Language",
-  search_prompt:    "Tap the button below to search GIFs in this chat:",
+  btn_search:        "🔍 Search",
+  btn_tags:          "🏷 Tags",
+  btn_communities:   "📋 Communities",
+  btn_help:          "❓ Help",
+  btn_lang:          "🌐 Language",
+  btn_search_gifs:   "🔍 Search GIFs",
+  search_prompt:     "Tap the button below to search GIFs in this chat:",
   btn_search_inline: "🔍 Search GIFs…",
 
-  members_header:        "👥 Members of \"{name}\" ({count} total):",
-  members_admins:        "⭐ Admins:",
-  members_users:         "👤 Members:",
-  members_empty:         "👥 No members tracked yet.",
-  members_group_note:    "(Group scope: only members who have sent a message are listed.)",
+  members_header:     "👥 Members of \"{name}\" ({count} total):",
+  members_admins:     "⭐ Admins:",
+  members_users:      "👤 Members:",
+  members_empty:      "👥 No members tracked yet.",
+  members_group_note: "(Group community: only members who have sent a message are listed.)",
 
-  kick_usage:            "Reply to a message from the user, or: /kick <userId>",
-  kick_self:             "You cannot remove yourself from the community.",
-  kick_not_member:       "This user is not a member of this community.",
-  kick_success:          "✅ {user} removed from the community. All pending invite links have been revoked.",
-  kick_manual_only:      "Member removal is only available for manual communities.",
+  kick_usage:       "Reply to a message from the user, or: /kick <userId>",
+  kick_self:        "You cannot remove yourself from the community.",
+  kick_not_member:  "This user is not a member of this community.",
+  kick_success:     "✅ {user} removed from the community. All pending invite links have been revoked.",
+  kick_manual_only: "Member removal is only available for private communities.",
 
   promote_usage:         "Reply to a message from the user, or: /promote <userId>",
   promote_self:          "You are already an admin.",
   promote_not_member:    "This user is not a member of this community.",
   promote_already_admin: "This user is already an admin.",
   promote_success:       "✅ {user} is now an admin.",
-  promote_manual_only:   "Admin promotion is only available for manual communities. Use /syncadmins for group scopes.",
+  promote_manual_only:   "Admin promotion is only available for private communities. Use /syncadmins for group communities.",
 
   rename_usage:   "Usage: /rename <new name>",
   rename_success: "✅ Community renamed to \"{name}\".",

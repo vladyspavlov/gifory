@@ -1,6 +1,7 @@
 import { MyContext } from "../session.js";
 import { extractTags, extractEmojis } from "../utils/tags.js";
 import { editTags } from "../meili.js";
+import { promptScopeSelect } from "./onScopes.js";
 
 export async function onEdit(ctx: MyContext): Promise<void> {
   const msg = ctx.message;
@@ -8,7 +9,7 @@ export async function onEdit(ctx: MyContext): Promise<void> {
 
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply(ctx.t("select_scope"));
+    await promptScopeSelect(ctx);
     return;
   }
 

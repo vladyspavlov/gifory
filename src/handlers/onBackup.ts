@@ -2,11 +2,12 @@ import { InputFile } from "grammy";
 import { MyContext } from "../session.js";
 import { getAllGifs } from "../meili.js";
 import { getScope } from "../scopes.js";
+import { promptScopeSelect } from "./onScopes.js";
 
 export async function onBackup(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply(ctx.t("select_scope"));
+    await promptScopeSelect(ctx);
     return;
   }
 

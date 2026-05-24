@@ -1,6 +1,7 @@
 import { MyContext } from "../session.js";
 import { getScope, isMemberOfScope, removeUserFromScope, revokeAllInvites } from "../scopes.js";
 import { getUserProfile, formatUserLink } from "../users.js";
+import { promptScopeSelect } from "./onScopes.js";
 
 function parseTargetUserId(ctx: MyContext): number | null {
   const replyFrom = ctx.message?.reply_to_message?.from;
@@ -18,7 +19,7 @@ function parseTargetUserId(ctx: MyContext): number | null {
 export async function onKick(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply(ctx.t("select_scope"));
+    await promptScopeSelect(ctx);
     return;
   }
 

@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import { MyContext } from "../session.js";
 import { getTagFacets } from "../meili.js";
 import { chunkArray } from "../utils/chunks.js";
+import { promptScopeSelect } from "./onScopes.js";
 
 const TAGS_PER_PAGE = 12;
 
@@ -44,7 +45,7 @@ async function buildTagsPage(
 export async function onTags(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply(ctx.t("no_scope_for_tags"));
+    await promptScopeSelect(ctx);
     return;
   }
 

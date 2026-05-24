@@ -3,6 +3,7 @@ import { MyContext } from "../session.js";
 import { extractTags, extractEmojis } from "../utils/tags.js";
 import { upsertGif, replaceGif, getGifInScope, refreshGifFileId } from "../meili.js";
 import { broadcastNewGif } from "../broadcast.js";
+import { promptScopeSelect } from "./onScopes.js";
 
 export async function onAnimation(ctx: MyContext): Promise<void> {
   const msg = ctx.message;
@@ -10,7 +11,7 @@ export async function onAnimation(ctx: MyContext): Promise<void> {
 
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply(ctx.t("no_scope_for_gifs"));
+    await promptScopeSelect(ctx);
     return;
   }
 

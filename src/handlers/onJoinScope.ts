@@ -1,5 +1,7 @@
+import { InlineKeyboard } from "grammy";
 import { MyContext } from "../session.js";
 import { consumeInviteToken, getScope, addUserToScope } from "../scopes.js";
+import { getMainKeyboard } from "../keyboard.js";
 
 export async function onJoinScope(ctx: MyContext): Promise<void> {
   const text = ctx.message?.text ?? "";
@@ -28,7 +30,14 @@ export async function onJoinScope(ctx: MyContext): Promise<void> {
   const scope = await getScope(scopeId);
   ctx.session.activeScopeId = scopeId;
 
-  await ctx.reply(ctx.t("join_success", { name: scope?.name ?? scopeId }));
+  const keyboard = new InlineKeyboard()
+    .switchInlineCurrent(ctx.t("btn_search_gifs"), "");
+
+  await ctx.reply(
+    ctx.t("join_success", { name: scope?.name ?? scopeId }),
+    { reply_markup: getMainKeyboard(ctx.t) }
+  );
+  await ctx.reply(ctx.t("btn_search_gifs"), { reply_markup: keyboard });
 }
 
 /** Handles /start scope_<scopeId> — direct permanent join from inline GIF button. */
@@ -40,5 +49,13 @@ export async function onDirectJoinScope(ctx: MyContext, scopeId: string): Promis
   }
   await addUserToScope(ctx.from!.id, scopeId);
   ctx.session.activeScopeId = scopeId;
-  await ctx.reply(ctx.t("join_success", { name: scope.name }));
+
+  const keyboard = new InlineKeyboard()
+    .switchInlineCurrent(ctx.t("btn_search_gifs"), "");
+
+  await ctx.reply(
+    ctx.t("join_success", { name: scope.name }),
+    { reply_markup: getMainKeyboard(ctx.t) }
+  );
+  await ctx.reply(ctx.t("btn_search_gifs"), { reply_markup: keyboard });
 }
