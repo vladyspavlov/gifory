@@ -6,7 +6,7 @@
  * and creates the corresponding legacy scope in Redis.
  *
  * Run inside Docker:
- *   docker-compose run --rm bot tsx scripts/migrate.ts
+ *   docker compose run --rm bot node dist/scripts/migrate.js
  *
  * Optional env overrides:
  *   LEGACY_SCOPE_ID   — scope id to assign (default: "legacy")
@@ -21,18 +21,18 @@ import { Redis } from "ioredis";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const MEILI_HOST   = process.env.MEILI_HOST      ?? "http://meilisearch:7700";
-const MEILI_KEY    = process.env.MEILI_MASTER_KEY ?? process.env.MEILI_API_KEY ?? "";
-const REDIS_HOST   = process.env.REDIS_HOST       ?? "redis";
-const INDEX_NAME   = "gifs";
+const MEILI_HOST = process.env.MEILI_HOST      ?? "http://meilisearch:7700";
+const MEILI_KEY  = process.env.MEILI_MASTER_KEY ?? process.env.MEILI_API_KEY ?? "";
+const REDIS_HOST = process.env.REDIS_HOST       ?? "redis";
+const INDEX_NAME = "gifs";
 
-const SCOPE_ID     = process.env.LEGACY_SCOPE_ID   ?? "legacy";
-const SCOPE_NAME   = process.env.LEGACY_SCOPE_NAME ?? "Legacy Archive";
-const ADMIN_IDS    = (process.env.ADMIN_IDS ?? "")
-  .split(",").map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0);
-const DRY_RUN      = process.env.DRY_RUN === "1";
+const SCOPE_ID   = process.env.LEGACY_SCOPE_ID   ?? "legacy";
+const SCOPE_NAME = process.env.LEGACY_SCOPE_NAME ?? "Legacy Archive";
+const ADMIN_IDS  = (process.env.ADMIN_IDS ?? "")
+  .split(",").map((s: string) => Number(s.trim())).filter((n: number) => !isNaN(n) && n > 0);
+const DRY_RUN    = process.env.DRY_RUN === "1";
 
-const BATCH_SIZE   = 500;
+const BATCH_SIZE = 500;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,8 +42,7 @@ interface OldDoc {
   tags: string[];
   emojis: string[];
   created_at: number;
-  // may already have scope_id if partially migrated
-  scope_id?: string;
+  scope_id?: string; // present if partially migrated already
 }
 
 interface NewDoc {
@@ -58,19 +57,12 @@ interface NewDoc {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function waitForTask(client: Meilisearch, taskUid: number): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    const task = await client.getTask(taskUid);
-    if (task.status === "succeeded") return;
-    if (task.status === "failed") throw new Error(`Task ${taskUid} failed: ${JSON.stringify(task.error)}`);
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`Task ${taskUid} timed out after 60s`);
-}
-
 function log(msg: string): void {
   console.log(`[migrate] ${msg}`);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -81,17 +73,17 @@ async function main(): Promise<void> {
   const meili = new Meilisearch({ host: MEILI_HOST, apiKey: MEILI_KEY });
   const redis = new Redis({ host: REDIS_HOST, port: 6379 });
 
-  redis.on("error", (err) => console.error("[Redis]", err));
+  redis.on("error", (err: Error) => console.error("[Redis]", err));
 
   // ── Step 1: Update index settings ─────────────────────────────────────────
   log("Updating Meilisearch index settings...");
   const index = meili.index<OldDoc>(INDEX_NAME);
 
   if (!DRY_RUN) {
-    const settingsTask = await index.updateFilterableAttributes(["tags", "scope_id"]);
-    await waitForTask(meili, settingsTask.taskUid);
-    const facetTask = await index.updateFaceting({ maxValuesPerFacet: 1000 });
-    await waitForTask(meili, facetTask.taskUid);
+    await index.updateFilterableAttributes(["tags", "scope_id"]);
+    await index.updateFaceting({ maxValuesPerFacet: 1000 });
+    // Give Meilisearch a moment to apply settings before we write documents
+    await sleep(2000);
   }
   log("Index settings updated.");
 
@@ -109,12 +101,11 @@ async function main(): Promise<void> {
 
   log(`Found ${allOldDocs.length} total documents.`);
 
-  // Separate already-migrated from legacy ones
-  const oldFormatDocs = allOldDocs.filter(d => !d.scope_id);
+  const oldFormatDocs = allOldDocs.filter((d) => !d.scope_id);
   const alreadyMigrated = allOldDocs.length - oldFormatDocs.length;
 
   if (alreadyMigrated > 0) {
-    log(`${alreadyMigrated} documents already have scope_id — skipping those.`);
+    log(`${alreadyMigrated} documents already have scope_id — skipping.`);
   }
   if (oldFormatDocs.length === 0) {
     log("Nothing to migrate. Exiting.");
@@ -127,15 +118,13 @@ async function main(): Promise<void> {
 
   // ── Step 3: Create legacy scope in Redis ──────────────────────────────────
   if (!DRY_RUN) {
-    const scopeData = JSON.stringify({
+    await redis.set(`scope:${SCOPE_ID}`, JSON.stringify({
       id: SCOPE_ID,
       name: SCOPE_NAME,
       type: "manual",
       admin_ids: ADMIN_IDS,
       created_at: Date.now(),
-    });
-    await redis.set(`scope:${SCOPE_ID}`, scopeData);
-
+    }));
     for (const adminId of ADMIN_IDS) {
       await redis.sadd(`user_scopes:${adminId}`, SCOPE_ID);
       await redis.sadd(`scope_members:${SCOPE_ID}`, String(adminId));
@@ -146,7 +135,7 @@ async function main(): Promise<void> {
   }
 
   // ── Step 4: Index new-format docs ─────────────────────────────────────────
-  const newDocs: NewDoc[] = oldFormatDocs.map(doc => ({
+  const newDocs: NewDoc[] = oldFormatDocs.map((doc) => ({
     id: `${SCOPE_ID}_${doc.id}`,
     file_unique_id: doc.id,
     file_id: doc.file_id,
@@ -156,30 +145,32 @@ async function main(): Promise<void> {
     created_at: doc.created_at ?? Date.now(),
   }));
 
-  // Index in batches
   let indexed = 0;
   for (let i = 0; i < newDocs.length; i += BATCH_SIZE) {
     const batch = newDocs.slice(i, i + BATCH_SIZE);
     if (!DRY_RUN) {
-      const task = await index.addDocuments(batch);
-      await waitForTask(meili, task.taskUid);
+      await index.addDocuments(batch);
     }
     indexed += batch.length;
-    log(`Indexed ${indexed}/${newDocs.length}...`);
+    log(`Submitted new docs ${indexed}/${newDocs.length}`);
   }
 
-  log("New-format documents indexed.");
+  // Wait for Meilisearch to index new docs before deleting old ones.
+  // New and old doc IDs are disjoint, but we want the index settled first.
+  if (!DRY_RUN) {
+    log("Waiting 5s for indexing to settle...");
+    await sleep(5000);
+  }
 
   // ── Step 5: Delete old-format docs ────────────────────────────────────────
-  const oldIds = oldFormatDocs.map(d => d.id);
+  const oldIds = oldFormatDocs.map((d) => d.id);
 
   for (let i = 0; i < oldIds.length; i += BATCH_SIZE) {
     const batch = oldIds.slice(i, i + BATCH_SIZE);
     if (!DRY_RUN) {
-      const task = await index.deleteDocuments(batch);
-      await waitForTask(meili, task.taskUid);
+      await index.deleteDocuments(batch);
     }
-    log(`Deleted old docs ${i + 1}–${Math.min(i + BATCH_SIZE, oldIds.length)}/${oldIds.length}`);
+    log(`Submitted deletion ${i + 1}–${Math.min(i + BATCH_SIZE, oldIds.length)}/${oldIds.length}`);
   }
 
   // ── Done ──────────────────────────────────────────────────────────────────
@@ -188,12 +179,13 @@ async function main(): Promise<void> {
   log(`  Documents migrated : ${oldFormatDocs.length}`);
   log(`  Scope created      : "${SCOPE_NAME}" (id: ${SCOPE_ID})`);
   log(`  Admins             : ${ADMIN_IDS.length > 0 ? ADMIN_IDS.join(", ") : "(none)"}`);
+  if (!DRY_RUN) log("  Meilisearch tasks are processing asynchronously (takes a few seconds).");
   log("─".repeat(60));
 
   await redis.quit();
 }
 
-main().catch((err) => {
+main().catch((err: Error) => {
   console.error("[migrate] Fatal error:", err);
   process.exit(1);
 });
