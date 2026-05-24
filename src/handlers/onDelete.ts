@@ -7,13 +7,13 @@ export async function onDelete(ctx: MyContext): Promise<void> {
 
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply("Оберіть активну спільноту через /scopes.");
+    await ctx.reply(ctx.t("select_scope"));
     return;
   }
 
   const replyAnimation = msg.reply_to_message?.animation;
   if (!replyAnimation) {
-    await ctx.reply("Зробіть Reply на гіфку, яку хочете видалити.");
+    await ctx.reply(ctx.t("reply_to_delete"));
     return;
   }
 
@@ -22,6 +22,6 @@ export async function onDelete(ctx: MyContext): Promise<void> {
   if (success) {
     await ctx.react("👍");
   } else {
-    await ctx.reply("Цю гіфку не знайдено в базі цієї спільноти.");
+    await ctx.reply(ctx.t("gif_not_found"));
   }
 }

@@ -9,8 +9,6 @@ export async function isAdmin(ctx: MyContext, next: NextFunction): Promise<void>
   if (userId && scopeId && (await isAdminOfScope(userId, scopeId))) {
     await next();
   } else {
-    await ctx.reply(
-      "У вас немає прав для додавання чи редагування гіфок. Ви можете лише шукати."
-    );
+    await ctx.reply(ctx.t("no_permissions"));
   }
 }

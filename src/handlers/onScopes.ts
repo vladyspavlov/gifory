@@ -7,11 +7,7 @@ export async function onScopes(ctx: MyContext): Promise<void> {
   const scopes = await getUserScopes(userId);
 
   if (scopes.length === 0) {
-    await ctx.reply(
-      "У вас немає жодної спільноти.\n\n" +
-      "• /create <назва> — створити нову\n" +
-      "• Або додайте бота до своєї групи"
-    );
+    await ctx.reply(ctx.t("scopes_none"));
     return;
   }
 
@@ -26,8 +22,8 @@ export async function onScopes(ctx: MyContext): Promise<void> {
 
   const activeName = scopes.find((s) => s.id === activeId)?.name;
   const header = activeName
-    ? `📋 Ваші спільноти (активна: ${activeName}):`
-    : `📋 Ваші спільноти — оберіть активну:`;
+    ? ctx.t("scopes_header_active", { name: activeName })
+    : ctx.t("scopes_header");
 
   await ctx.reply(header, { reply_markup: keyboard });
 }
@@ -43,8 +39,8 @@ export async function onScopeSetCallback(ctx: MyContext): Promise<void> {
 
   await ctx.editMessageText(
     scope
-      ? `✅ Активна спільнота: ${scope.name}`
-      : "✅ Спільноту обрано."
+      ? ctx.t("scope_set_active", { name: scope.name })
+      : ctx.t("scope_set")
   );
   await ctx.answerCallbackQuery();
 }

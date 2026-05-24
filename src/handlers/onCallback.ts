@@ -10,27 +10,21 @@ export async function onGifCallback(ctx: MyContext): Promise<void> {
       ctx.session.pendingGifUniqueId = undefined;
       ctx.session.pendingFileId = undefined;
       ctx.session.pendingScopeId = undefined;
-      await ctx.editMessageText("🚫 Зміни відмінено.");
+      await ctx.editMessageText(ctx.t("changes_cancelled"));
       break;
     }
 
     case "gif:replace_tags": {
       ctx.session.state = "WAITING_TO_REPLACE_TAGS";
-      const kb = new InlineKeyboard().text("❌ Скасувати", "gif:cancel");
-      await ctx.editMessageText(
-        "✏️ Введіть нові теги та емоджі (старі буде повністю замінено):",
-        { reply_markup: kb }
-      );
+      const kb = new InlineKeyboard().text(ctx.t("gif_btn_cancel"), "gif:cancel");
+      await ctx.editMessageText(ctx.t("enter_new_tags"), { reply_markup: kb });
       break;
     }
 
     case "gif:append_tags": {
       ctx.session.state = "WAITING_TO_APPEND_TAGS";
-      const kb = new InlineKeyboard().text("❌ Скасувати", "gif:cancel");
-      await ctx.editMessageText(
-        "➕ Введіть теги та емоджі для додавання до існуючих:",
-        { reply_markup: kb }
-      );
+      const kb = new InlineKeyboard().text(ctx.t("gif_btn_cancel"), "gif:cancel");
+      await ctx.editMessageText(ctx.t("enter_append_tags"), { reply_markup: kb });
       break;
     }
 
@@ -39,7 +33,7 @@ export async function onGifCallback(ctx: MyContext): Promise<void> {
       ctx.session.pendingGifUniqueId = undefined;
       ctx.session.pendingFileId = undefined;
       ctx.session.pendingScopeId = undefined;
-      await ctx.editMessageText("🚫 Операцію відмінено.");
+      await ctx.editMessageText(ctx.t("operation_cancelled"));
       break;
     }
   }

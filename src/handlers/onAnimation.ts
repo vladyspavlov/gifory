@@ -10,16 +10,13 @@ export async function onAnimation(ctx: MyContext): Promise<void> {
 
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply(
-      "Оберіть активну спільноту через /scopes, щоб додавати гіфки."
-    );
+    await ctx.reply(ctx.t("no_scope_for_gifs"));
     return;
   }
 
   const animation = msg.animation;
   const replyAnimation = msg.reply_to_message?.animation;
 
-  // ── Replace GIF (reply with new GIF onto old one) ───────────────────────
   if (replyAnimation) {
     const success = await replaceGif(
       replyAnimation.file_unique_id,
@@ -34,29 +31,28 @@ export async function onAnimation(ctx: MyContext): Promise<void> {
   const uniqueId = animation.file_unique_id;
   const fileId = animation.file_id;
 
-  // ── Duplicate check ──────────────────────────────────────────────────────
   const existing = await getGifInScope(uniqueId, scopeId);
 
   if (existing) {
-    const info =
-      `📌 Гіфка вже є в базі!\n` +
-      `🏷 Теги: ${existing.tags?.join(" ") || "—"}\n` +
-      `😀 Емоджі: ${existing.emojis?.join(" ") || "—"}`;
-
     const keyboard = new InlineKeyboard()
-      .text("🔄 Замінити всі", "gif:replace_tags")
-      .text("➕ Додати нові", "gif:append_tags")
+      .text(ctx.t("gif_btn_replace_all"), "gif:replace_tags")
+      .text(ctx.t("gif_btn_add_new"), "gif:append_tags")
       .row()
-      .text("❌ Ні", "gif:no_changes");
+      .text(ctx.t("gif_btn_no"), "gif:no_changes");
 
     ctx.session.pendingGifUniqueId = uniqueId;
     ctx.session.pendingScopeId = scopeId;
 
-    await ctx.reply(info, { reply_markup: keyboard });
+    await ctx.reply(
+      ctx.t("gif_already_exists", {
+        tags: existing.tags?.join(" ") || "—",
+        emojis: existing.emojis?.join(" ") || "—",
+      }),
+      { reply_markup: keyboard }
+    );
     return;
   }
 
-  // ── New GIF ──────────────────────────────────────────────────────────────
   const tags = extractTags(msg.caption);
   const emojis = extractEmojis(msg.caption);
 
@@ -66,10 +62,8 @@ export async function onAnimation(ctx: MyContext): Promise<void> {
     ctx.session.pendingFileId = fileId;
     ctx.session.pendingScopeId = scopeId;
 
-    const keyboard = new InlineKeyboard().text("❌ Скасувати", "gif:cancel");
-    await ctx.reply("🏷 Введіть теги та/або емоджі для цієї гіфки:", {
-      reply_markup: keyboard,
-    });
+    const keyboard = new InlineKeyboard().text(ctx.t("gif_btn_cancel"), "gif:cancel");
+    await ctx.reply(ctx.t("gif_enter_tags"), { reply_markup: keyboard });
     return;
   }
 

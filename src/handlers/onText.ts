@@ -51,8 +51,9 @@ export async function onText(ctx: MyContext): Promise<void> {
   clearSession();
 
   await ctx.reply(
-    `✅ Успішно збережено!\n` +
-    `🏷 Теги: ${finalTags.join(" ") || "—"}\n` +
-    `😀 Емоджі: ${finalEmojis.join(" ") || "—"}`
+    ctx.t("gif_saved", {
+      tags: finalTags.join(" ") || "—",
+      emojis: finalEmojis.join(" ") || "—",
+    })
   );
 }

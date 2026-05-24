@@ -8,13 +8,13 @@ export async function onEdit(ctx: MyContext): Promise<void> {
 
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply("Оберіть активну спільноту через /scopes.");
+    await ctx.reply(ctx.t("select_scope"));
     return;
   }
 
   const replyAnimation = msg.reply_to_message?.animation;
   if (!replyAnimation) {
-    await ctx.reply("Зробіть Reply на гіфку, теги якої хочете змінити.");
+    await ctx.reply(ctx.t("reply_to_edit"));
     return;
   }
 
@@ -22,9 +22,7 @@ export async function onEdit(ctx: MyContext): Promise<void> {
   const emojis = extractEmojis(msg.text);
 
   if (tags.length === 0 && emojis.length === 0) {
-    await ctx.reply(
-      "Не знайдено жодного тегу чи емоджі.\nФормат: /edit #тег1 #тег2 😀"
-    );
+    await ctx.reply(ctx.t("no_tags_found"));
     return;
   }
 
@@ -33,6 +31,6 @@ export async function onEdit(ctx: MyContext): Promise<void> {
   if (success) {
     await ctx.react("👍");
   } else {
-    await ctx.reply("Цю гіфку не знайдено в базі цієї спільноти.");
+    await ctx.reply(ctx.t("gif_not_found"));
   }
 }

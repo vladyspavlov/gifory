@@ -5,28 +5,24 @@ export async function onInvite(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
 
   if (!scopeId) {
-    await ctx.reply(
-      "Спочатку оберіть активну спільноту через /scopes або використовуйте команду у групі."
-    );
+    await ctx.reply(ctx.t("invite_needs_scope"));
     return;
   }
 
   const scope = await getScope(scopeId);
   if (!scope) {
-    await ctx.reply("Спільноту не знайдено.");
+    await ctx.reply(ctx.t("invite_not_found"));
     return;
   }
 
   if (scope.type === "group") {
-    await ctx.reply(
-      "Для групових спільнот запрошення не потрібні — достатньо додати бота до групи."
-    );
+    await ctx.reply(ctx.t("invite_group_scope"));
     return;
   }
 
   const userId = ctx.from!.id;
   if (!(await isAdminOfScope(userId, scopeId))) {
-    await ctx.reply("Тільки адміни можуть створювати запрошення.");
+    await ctx.reply(ctx.t("invite_admin_only"));
     return;
   }
 
@@ -34,8 +30,9 @@ export async function onInvite(ctx: MyContext): Promise<void> {
   const botInfo = await ctx.api.getMe();
 
   await ctx.reply(
-    `🔗 Запрошення до "${scope.name}":\n\n` +
-    `https://t.me/${botInfo.username}?start=join_${token}\n\n` +
-    `⏳ Дійсне 24 години.`
+    ctx.t("invite_link", {
+      name: scope.name,
+      link: `https://t.me/${botInfo.username}?start=join_${token}`,
+    })
   );
 }

@@ -1,6 +1,7 @@
 import { Context, SessionFlavor } from "grammy";
 import { RedisAdapter } from "@grammyjs/storage-redis";
 import { redis } from "./redis.js";
+import { TFunction } from "./i18n/index.js";
 
 export type SessionState =
   | "IDLE"
@@ -22,6 +23,8 @@ export type MyContext = Context &
   SessionFlavor<SessionData> & {
     // Resolved by scope middleware: group chat_id or session activeScopeId
     currentScopeId?: string;
+    // Injected by i18n middleware — synchronous translation function
+    t: TFunction;
   };
 
 export function createRedisStorage(): RedisAdapter<SessionData> {

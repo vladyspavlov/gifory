@@ -6,6 +6,7 @@ import { chunkArray } from "../utils/chunks.js";
 const TAGS_PER_PAGE = 12;
 
 async function buildTagsPage(
+  ctx: MyContext,
   scopeId: string,
   page: number
 ): Promise<{ text: string; keyboard: InlineKeyboard }> {
@@ -25,32 +26,29 @@ async function buildTagsPage(
 
   keyboard.row();
   if (currentPage > 0) {
-    keyboard.text("⬅️ Назад", `tags:page:${currentPage - 1}`);
+    keyboard.text(ctx.t("tags_btn_back"), `tags:page:${currentPage - 1}`);
   }
   keyboard.text(`${currentPage + 1}/${totalPages}`, "tags:noop");
   if (currentPage < totalPages - 1) {
-    keyboard.text("Вперед ➡️", `tags:page:${currentPage + 1}`);
+    keyboard.text(ctx.t("tags_btn_forward"), `tags:page:${currentPage + 1}`);
   }
 
   const text =
     entries.length === 0
-      ? "📂 База тегів порожня."
-      : `📂 Каталог тегів (${entries.length} шт.) — сторінка ${currentPage + 1}/${totalPages}:`;
+      ? ctx.t("tags_empty")
+      : ctx.t("tags_catalog", { count: entries.length, page: currentPage + 1, total: totalPages });
 
   return { text, keyboard };
 }
 
 export async function onTags(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
-
   if (!scopeId) {
-    await ctx.reply(
-      "Оберіть активну спільноту через /scopes, щоб переглядати теги."
-    );
+    await ctx.reply(ctx.t("no_scope_for_tags"));
     return;
   }
 
-  const { text, keyboard } = await buildTagsPage(scopeId, 0);
+  const { text, keyboard } = await buildTagsPage(ctx, scopeId, 0);
   await ctx.reply(text, { reply_markup: keyboard });
 }
 
@@ -61,7 +59,7 @@ export async function onTagsPageCallback(ctx: MyContext): Promise<void> {
   const data = ctx.callbackQuery?.data ?? "";
   const page = parseInt(data.replace("tags:page:", ""), 10);
 
-  const { text, keyboard } = await buildTagsPage(scopeId, isNaN(page) ? 0 : page);
+  const { text, keyboard } = await buildTagsPage(ctx, scopeId, isNaN(page) ? 0 : page);
   await ctx.editMessageText(text, { reply_markup: keyboard });
   await ctx.answerCallbackQuery();
 }

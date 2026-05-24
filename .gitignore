@@ -11,5 +11,8 @@ dist/
 meili_data/
 redis_data/
 
+# Claude Code local settings
+.claude/
+
 # Logs
 *.log

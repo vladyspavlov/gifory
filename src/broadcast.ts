@@ -1,5 +1,6 @@
 import { Api } from "grammy";
 import { getScopeAdmins } from "./scopes.js";
+import { getUserLang, t } from "./i18n/index.js";
 
 export async function broadcastNewGif(
   api: Api,
@@ -13,17 +14,14 @@ export async function broadcastNewGif(
   const recipients = allAdmins.filter((id) => id !== authorId);
   if (recipients.length === 0) return;
 
-  const caption = [
-    "🆕 Додано нову гіфку!",
-    tags.length > 0 ? `🏷 Теги: ${tags.join(" ")}` : null,
-    emojis.length > 0 ? `😀 Емоджі: ${emojis.join(" ")}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
   for (const id of recipients) {
+    const lang = await getUserLang(id);
+    const lines = [t(lang, "broadcast_new_gif")];
+    if (tags.length > 0) lines.push(t(lang, "broadcast_tags", { tags: tags.join(" ") }));
+    if (emojis.length > 0) lines.push(t(lang, "broadcast_emojis", { emojis: emojis.join(" ") }));
+
     try {
-      await api.sendAnimation(id, fileId, { caption });
+      await api.sendAnimation(id, fileId, { caption: lines.join("\n") });
     } catch (err) {
       console.error(`[Broadcast] Failed to send to ${id}:`, err);
     }

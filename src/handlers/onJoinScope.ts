@@ -13,7 +13,7 @@ export async function onJoinScope(ctx: MyContext): Promise<void> {
   else if (startMatch) token = startMatch[1];
 
   if (!token) {
-    await ctx.reply("Вкажіть токен запрошення: /join <token>");
+    await ctx.reply(ctx.t("join_needs_token"));
     return;
   }
 
@@ -21,12 +21,12 @@ export async function onJoinScope(ctx: MyContext): Promise<void> {
   const scopeId = await consumeInviteToken(token, userId);
 
   if (!scopeId) {
-    await ctx.reply("❌ Токен недійсний або прострочений.");
+    await ctx.reply(ctx.t("join_invalid"));
     return;
   }
 
   const scope = await getScope(scopeId);
   ctx.session.activeScopeId = scopeId;
 
-  await ctx.reply(`✅ Ви приєдналися до "${scope?.name ?? scopeId}"!`);
+  await ctx.reply(ctx.t("join_success", { name: scope?.name ?? scopeId }));
 }

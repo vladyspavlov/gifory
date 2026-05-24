@@ -128,10 +128,11 @@ Gifory — a public multi-tenant Telegram bot. Each community ("scope") has its 
 Telegram update (long polling)
   → auth middleware (src/middleware/auth.ts) — passthrough
   → session middleware (Redis, 3600s TTL)
+  → i18n middleware (src/bot.ts) — sets ctx.t() from user's stored lang or Telegram language_code
   → scope resolution middleware (src/bot.ts) — sets ctx.currentScopeId
-  → public handlers (onInline, onTags, onScopes, onCreateScope, onJoinScope)
+  → public handlers (onInline, onTags, onScopes, onCreateScope, onJoinScope, onLang)
   → isAdmin gate (src/middleware/isAdmin.ts) — checks scope admin via Redis
-  → admin-only handlers (onAnimation, onText, onCallback, onEdit, onDelete, onBackup, onInvite, syncadmins)
+  → admin-only handlers (onAnimation, onText, onCallback, onEdit, onDelete, onBackup, onInvite, onStats, syncadmins)
   → Meilisearch (full-text search + scope_id filter)
 ```
 
@@ -141,7 +142,7 @@ Telegram update (long polling)
 - Inline query → no `currentScopeId`; `onInline` fetches all user scopes and merges results
 
 **Services (docker-compose):**
-- `bot` — Node.js 22 Alpine, runs compiled `dist/index.js`
+- `bot` — Node.js 24 Alpine, runs compiled `dist/src/index.js`
 - `redis` — session storage + scope/membership data
 - `meilisearch` — search engine (port 7700)
 
@@ -154,9 +155,11 @@ Telegram update (long polling)
 | `src/scopes.ts` | Scope CRUD, user membership, invite token generation (Redis) |
 | `src/redis.ts` | Shared Redis client (imported by session.ts and scopes.ts) |
 | `src/meili.ts` | All Meilisearch operations — all accept `scopeId` param |
-| `src/session.ts` | Session type (`activeScopeId`, `pendingScopeId`, state machine) + Redis storage |
+| `src/session.ts` | Session type (`activeScopeId`, `pendingScopeId`, state machine) + Redis storage; `MyContext` includes `t: TFunction` |
 | `src/config.ts` | Env var loading (`BOT_TOKEN`, `MEILI_MASTER_KEY`) |
 | `src/backup.ts` | Weekly cron (Sunday 03:00) — per-scope backup to first scope admin |
+| `src/i18n/` | Localization: `en.ts`, `uk.ts` (all UI strings), `index.ts` (`t()`, `getUserLang`, `setUserLang`) |
+| `src/stats.ts` | GIF usage tracking: `recordGifUsage()`, `getTopGifs()` using Redis sorted sets |
 | `src/handlers/` | One file per Telegram update type |
 
 ## Data Model
@@ -186,6 +189,9 @@ interface Scope {
 - `user_scopes:{userId}` → Set of scope IDs (drives inline search)
 - `scope_members:{scopeId}` → Set of user IDs (manual scopes)
 - `invite:{token}` → scopeId, TTL 24h
+- `user_lang:{userId}` → "en" or "uk" (explicit override; fallback is Telegram language_code)
+- `stats:total:{scopeId}` → sorted set, member = gifId, score = all-time use count
+- `stats:week:{scopeId}:{YYYY-Www}` → sorted set, member = gifId, score = weekly count, TTL 14 days
 
 ## Session State Machine
 

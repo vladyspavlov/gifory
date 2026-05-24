@@ -6,11 +6,11 @@ import { getScope } from "../scopes.js";
 export async function onBackup(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
   if (!scopeId) {
-    await ctx.reply("Оберіть активну спільноту через /scopes.");
+    await ctx.reply(ctx.t("select_scope"));
     return;
   }
 
-  await ctx.reply("⏳ Створюю бекап...");
+  await ctx.reply(ctx.t("backup_creating"));
 
   try {
     const docs = await getAllGifs(scopeId);
@@ -19,12 +19,13 @@ export async function onBackup(ctx: MyContext): Promise<void> {
     const filename = `backup_${scope?.name ?? scopeId}_${Date.now()}.json`;
 
     await ctx.replyWithDocument(new InputFile(buffer, filename), {
-      caption:
-        `📦 Ручний бекап — ${scope?.name ?? scopeId}\n` +
-        `🗂 Гіфок у базі: ${docs.length}`,
+      caption: ctx.t("backup_caption", {
+        scopeName: scope?.name ?? scopeId,
+        count: docs.length,
+      }),
     });
   } catch (err) {
     console.error("[Backup] Manual backup failed:", err);
-    await ctx.reply("❌ Помилка під час створення бекапу.");
+    await ctx.reply(ctx.t("backup_error"));
   }
 }
