@@ -52,8 +52,20 @@ export async function onInline(ctx: MyContext): Promise<void> {
 
   const gifs = await searchGifs(query, scopeIds, 50, safeOffset);
 
+  const botUsername = ctx.me.username ?? "";
+
   const toResults = (docs: GifDocument[]): InlineQueryResultCachedMpeg4Gif[] =>
-    docs.map((gif) => ({ type: "mpeg4_gif", id: gif.id, mpeg4_file_id: gif.file_id }));
+    docs.map((gif) => ({
+      type: "mpeg4_gif",
+      id: gif.id,
+      mpeg4_file_id: gif.file_id,
+      reply_markup: botUsername ? {
+        inline_keyboard: [[{
+          text: ctx.t("inline_join_btn"),
+          url: `https://t.me/${botUsername}?start=scope_${gif.scope_id}`,
+        }]],
+      } : undefined,
+    }));
 
   const answerOpts = (count: number, cacheTime = 10) => ({
     cache_time: cacheTime,
