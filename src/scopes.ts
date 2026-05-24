@@ -79,9 +79,52 @@ export async function syncGroupAdmins(scopeId: string, adminIds: number[]): Prom
   }
 }
 
+export async function getScopeMembers(scopeId: string): Promise<number[]> {
+  const members = await redis.smembers(`scope_members:${scopeId}`);
+  return members.map(Number).filter((n) => !isNaN(n));
+}
+
+export async function removeUserFromScope(userId: number, scopeId: string): Promise<void> {
+  await redis.srem(`user_scopes:${userId}`, scopeId);
+  await redis.srem(`scope_members:${scopeId}`, String(userId));
+  // Remove admin status if they had it
+  const scope = await getScope(scopeId);
+  if (scope && scope.admin_ids.includes(userId)) {
+    scope.admin_ids = scope.admin_ids.filter((id) => id !== userId);
+    await updateScope(scope);
+  }
+}
+
+export async function promoteToAdmin(userId: number, scopeId: string): Promise<boolean> {
+  const scope = await getScope(scopeId);
+  if (!scope) return false;
+  if (scope.admin_ids.includes(userId)) return false;
+  scope.admin_ids.push(userId);
+  await updateScope(scope);
+  await redis.sadd(`user_scopes:${userId}`, scopeId);
+  return true;
+}
+
+export async function renameScope(scopeId: string, newName: string): Promise<boolean> {
+  const scope = await getScope(scopeId);
+  if (!scope) return false;
+  scope.name = newName;
+  await updateScope(scope);
+  return true;
+}
+
+export async function revokeAllInvites(scopeId: string): Promise<void> {
+  const tokens = await redis.smembers(`scope_invites:${scopeId}`);
+  if (tokens.length > 0) {
+    await redis.del(...tokens.map((t) => `invite:${t}`));
+    await redis.del(`scope_invites:${scopeId}`);
+  }
+}
+
 export async function createInviteToken(scopeId: string): Promise<string> {
   const token = randomBytes(8).toString("hex");
   await redis.set(`invite:${token}`, scopeId, "EX", 86400);
+  await redis.sadd(`scope_invites:${scopeId}`, token);
   return token;
 }
 
@@ -93,6 +136,7 @@ export async function consumeInviteToken(
   if (!scopeId) return null;
   await addUserToScope(userId, scopeId);
   await redis.del(`invite:${token}`);
+  await redis.srem(`scope_invites:${scopeId}`, token);
   return scopeId;
 }
 

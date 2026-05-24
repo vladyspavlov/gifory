@@ -1,19 +1,27 @@
 ## Last completed
-- solo: Multi-tenant scope refactor + self-review — all src/ files, scripts/migrate.ts, docker-compose.yml
+- solo: Migration of 802 GIFs to "Legacy Archive" scope — scripts/migrate.ts ran successfully
+- solo: Full multi-tenant refactor shipped — src/, Dockerfile (Node 24 LTS), docker-compose.yml
+- solo: i18n system + usage stats shipped (build passes):
+  - src/i18n/en.ts, src/i18n/uk.ts, src/i18n/index.ts — all UI strings extracted, ctx.t() injected via middleware
+  - All handlers updated to use ctx.t() — no hardcoded Ukrainian strings remain in code
+  - src/stats.ts — Redis sorted-set usage tracking (recordGifUsage, getTopGifs)
+  - src/handlers/onChosenInlineResult.ts — tracks which GIF was selected from inline results
+  - src/handlers/onStats.ts — /stats admin command (top-5 all-time + top-5 weekly)
+  - src/handlers/onLang.ts — /lang command + lang:set:en/uk callbacks
+  - Language auto-detect: stored pref → Telegram language_code.startsWith("uk") → "en"
 
-## Self-review (Solo Mode)
-- Security: ✅ cross-scope protection via Meilisearch composite PK, invite tokens consumed on use
-- Consistency: ✅ all handlers use ctx.currentScopeId, pendingScopeId persists across multi-step flows
-- Bug fixed: removed per-message admin sync in resolveScope (was calling getChatAdministrators on every non-admin message)
-- Tests: N/A (no test suite)
+- solo: /help command added — src/handlers/onHelp.ts, en.ts, uk.ts
+- solo: persistent ReplyKeyboard added — src/keyboard.ts, src/handlers/onKeyboardButton.ts; keyboard shown on /start and /help
+- solo: inline search fixed — onInline now catches DOCUMENT_INVALID, probes file_ids via getFile, auto-purges invalid GIFs from Meilisearch
+- solo: member management added — /members, /kick, /promote, /rename (admin-only); scopes.ts extended with getScopeMembers, removeUserFromScope, promoteToAdmin, renameScope, revokeAllInvites
 
 ## In progress
 - (none)
 
 ## Next steps (in order)
-1. user — run migration dry run: `docker compose run --rm bot sh -c "DRY_RUN=1 ADMIN_IDS=136652097,570131786 tsx scripts/migrate.ts"`
-2. user — run real migration: `docker compose run --rm bot sh -c "ADMIN_IDS=136652097,570131786 tsx scripts/migrate.ts"`
-3. user — redeploy: `docker compose up --build -d`
+1. user — redeploy bot: `sudo docker compose up -d`
+2. user — enable "inline feedback" in BotFather at 100% so chosen_inline_result events fire
+   (BotFather → your bot → Bot Settings → Inline Feedback → 100%)
 
 ## Blockers
 - None
