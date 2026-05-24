@@ -9,6 +9,7 @@ export interface GifDocument {
   tags: string[];
   emojis: string[];
   created_at: number;
+  expired?: boolean;       // true when file_id is confirmed unreachable; excluded from search
 }
 
 const client = new Meilisearch({ host: MEILI_HOST, apiKey: MEILI_API_KEY });
@@ -24,7 +25,7 @@ export async function setupMeilisearch(): Promise<void> {
 
   await gifIndex.updateSearchableAttributes(["tags", "emojis"]);
   await gifIndex.updateSortableAttributes(["created_at"]);
-  await gifIndex.updateFilterableAttributes(["tags", "scope_id"]);
+  await gifIndex.updateFilterableAttributes(["tags", "scope_id", "expired"]);
   await gifIndex.updateFaceting({ maxValuesPerFacet: 1000 });
 
   console.log(`[Meilisearch] Index "${INDEX_NAME}" is ready`);
@@ -185,7 +186,8 @@ export async function searchGifs(
   offset = 0
 ): Promise<GifDocument[]> {
   if (scopeIds.length === 0) return [];
-  const filter = scopeIds.map((id) => `scope_id = "${id}"`).join(" OR ");
+  const scopeFilter = scopeIds.map((id) => `scope_id = "${id}"`).join(" OR ");
+  const filter = `(${scopeFilter}) AND expired != true`;
   const result = await gifIndex.search(query, {
     filter,
     limit,
@@ -193,6 +195,24 @@ export async function searchGifs(
     sort: ["created_at:desc"],
   });
   return result.hits;
+}
+
+/** Mark a GIF's file_id as unreachable; excludes it from search but preserves tag metadata */
+export async function markGifExpired(docId: string): Promise<void> {
+  await gifIndex.updateDocuments([{ id: docId, expired: true } as Partial<GifDocument> & { id: string }]);
+}
+
+/** Update file_id for an existing GIF and clear any expired flag (called when GIF is re-sent) */
+export async function refreshGifFileId(
+  fileUniqueId: string,
+  newFileId: string,
+  scopeId: string
+): Promise<void> {
+  const id = docId(scopeId, fileUniqueId);
+  try {
+    await gifIndex.getDocument(id);
+    await gifIndex.updateDocuments([{ id, file_id: newFileId, expired: false } as Partial<GifDocument> & { id: string }]);
+  } catch {}
 }
 
 /** All docs in a scope (for backup) */
@@ -217,7 +237,7 @@ export async function getAllGifs(scopeId: string): Promise<GifDocument[]> {
 /** Tag facets for the /tags catalog (scope-specific) */
 export async function getTagFacets(scopeId: string): Promise<Record<string, number>> {
   const result = await gifIndex.search("", {
-    filter: `scope_id = "${scopeId}"`,
+    filter: `scope_id = "${scopeId}" AND expired != true`,
     facets: ["tags"],
     limit: 0,
   });

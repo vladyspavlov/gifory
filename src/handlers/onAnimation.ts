@@ -1,7 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import { MyContext } from "../session.js";
 import { extractTags, extractEmojis } from "../utils/tags.js";
-import { upsertGif, replaceGif, getGifInScope } from "../meili.js";
+import { upsertGif, replaceGif, getGifInScope, refreshGifFileId } from "../meili.js";
 import { broadcastNewGif } from "../broadcast.js";
 
 export async function onAnimation(ctx: MyContext): Promise<void> {
@@ -34,6 +34,10 @@ export async function onAnimation(ctx: MyContext): Promise<void> {
   const existing = await getGifInScope(uniqueId, scopeId);
 
   if (existing) {
+    // Re-sending an existing GIF — always refresh file_id so expired IDs get healed
+    if (existing.file_id !== fileId) {
+      await refreshGifFileId(uniqueId, fileId, scopeId);
+    }
     const keyboard = new InlineKeyboard()
       .text(ctx.t("gif_btn_replace_all"), "gif:replace_tags")
       .text(ctx.t("gif_btn_add_new"), "gif:append_tags")

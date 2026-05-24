@@ -1,7 +1,7 @@
 import { Api } from "grammy";
 import { InlineQueryResultCachedMpeg4Gif } from "grammy/types";
 import { MyContext } from "../session.js";
-import { GifDocument, searchGifs, deleteGif } from "../meili.js";
+import { GifDocument, searchGifs, markGifExpired } from "../meili.js";
 import { getUserScopes } from "../scopes.js";
 
 async function findValidGifs(
@@ -73,8 +73,8 @@ export async function onInline(ctx: MyContext): Promise<void> {
     const { valid, invalid } = await findValidGifs(ctx.api, gifs);
 
     for (const gif of invalid) {
-      console.warn(`[Inline] Removing invalid GIF ${gif.id} (file_id: ${gif.file_id})`);
-      deleteGif(gif.file_unique_id, gif.scope_id).catch(() => {});
+      console.warn(`[Inline] Marking expired GIF ${gif.id} (file_id: ${gif.file_id})`);
+      markGifExpired(gif.id).catch(() => {});
     }
 
     await ctx.answerInlineQuery(toResults(valid), answerOpts(valid.length, 0));
