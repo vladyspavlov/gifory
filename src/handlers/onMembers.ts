@@ -1,6 +1,6 @@
 import { MyContext } from "../session.js";
 import { getScope, getScopeMembers } from "../scopes.js";
-import { getUserProfiles, formatUserLink } from "../users.js";
+import { getUserProfiles, fetchAndCacheProfile, formatUserLink } from "../users.js";
 
 export async function onMembers(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
@@ -25,6 +25,18 @@ export async function onMembers(ctx: MyContext): Promise<void> {
   }
 
   const profiles = await getUserProfiles(allIds);
+
+  // Lazily fetch profiles not yet cached — getChatMember for groups, getChat fallback
+  const missingIds = allIds.filter((id) => !profiles.has(id));
+  if (missingIds.length > 0) {
+    const groupChatId = scope.type === "group" ? scopeId : undefined;
+    await Promise.all(
+      missingIds.map(async (id) => {
+        const profile = await fetchAndCacheProfile(ctx.api, id, groupChatId);
+        if (profile) profiles.set(id, profile);
+      })
+    );
+  }
 
   const lines: string[] = [ctx.t("members_header", { name: scope.name, count: total })];
 
