@@ -16,8 +16,7 @@ export async function onInline(ctx: MyContext): Promise<void> {
     await ctx.answerInlineQuery([], {
       cache_time: 10,
       is_personal: true,
-      switch_pm_text: "Приєднайтесь до спільноти",
-      switch_pm_parameter: "start",
+      button: { text: "Приєднайтесь до спільноти", start_parameter: "start" },
     });
     return;
   }

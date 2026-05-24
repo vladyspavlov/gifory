@@ -16,7 +16,7 @@
  */
 
 import "dotenv/config";
-import { Meilisearch } from "meilisearch";
+import { Meilisearch, Index } from "meilisearch";
 import { Redis } from "ioredis";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -58,8 +58,8 @@ interface NewDoc {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function waitForTask(meili: Meilisearch, taskUid: number): Promise<void> {
-  await meili.waitForTask(taskUid, { timeOutMs: 60_000, intervalMs: 500 });
+async function waitForTask(index: Index<OldDoc>, taskUid: number): Promise<void> {
+  await index.waitForTask(taskUid, { timeOutMs: 60_000, intervalMs: 500 });
 }
 
 function log(msg: string): void {
