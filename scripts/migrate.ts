@@ -16,7 +16,7 @@
  */
 
 import "dotenv/config";
-import { Meilisearch, Index } from "meilisearch";
+import { Meilisearch } from "meilisearch";
 import { Redis } from "ioredis";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -58,8 +58,15 @@ interface NewDoc {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function waitForTask(index: Index<OldDoc>, taskUid: number): Promise<void> {
-  await index.waitForTask(taskUid, { timeOutMs: 60_000, intervalMs: 500 });
+async function waitForTask(client: Meilisearch, taskUid: number): Promise<void> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const task = await client.getTask(taskUid);
+    if (task.status === "succeeded") return;
+    if (task.status === "failed") throw new Error(`Task ${taskUid} failed: ${JSON.stringify(task.error)}`);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`Task ${taskUid} timed out after 60s`);
 }
 
 function log(msg: string): void {
