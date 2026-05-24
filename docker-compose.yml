@@ -1,3 +1,5 @@
+name: gifory
+
 services:
   redis:
     image: redis:alpine
