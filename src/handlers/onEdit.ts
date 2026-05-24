@@ -6,6 +6,12 @@ export async function onEdit(ctx: MyContext): Promise<void> {
   const msg = ctx.message;
   if (!msg?.text) return;
 
+  const scopeId = ctx.currentScopeId;
+  if (!scopeId) {
+    await ctx.reply("Оберіть активну спільноту через /scopes.");
+    return;
+  }
+
   const replyAnimation = msg.reply_to_message?.animation;
   if (!replyAnimation) {
     await ctx.reply("Зробіть Reply на гіфку, теги якої хочете змінити.");
@@ -22,11 +28,11 @@ export async function onEdit(ctx: MyContext): Promise<void> {
     return;
   }
 
-  const success = await editTags(replyAnimation.file_unique_id, tags, emojis);
+  const success = await editTags(replyAnimation.file_unique_id, tags, emojis, scopeId);
 
   if (success) {
     await ctx.react("👍");
   } else {
-    await ctx.reply("Цю гіфку не знайдено в базі.");
+    await ctx.reply("Цю гіфку не знайдено в базі цієї спільноти.");
   }
 }

@@ -1,7 +1,6 @@
 import { Context, SessionFlavor } from "grammy";
-import { Redis } from "ioredis";
 import { RedisAdapter } from "@grammyjs/storage-redis";
-import { REDIS_HOST } from "./config.js";
+import { redis } from "./redis.js";
 
 export type SessionState =
   | "IDLE"
@@ -11,19 +10,21 @@ export type SessionState =
 
 export interface SessionData {
   state: SessionState;
+  // Active scope for private-chat operations (set via /scopes selector)
+  activeScopeId?: string;
+  // Scope captured at the start of a multi-step GIF operation
+  pendingScopeId?: string;
   pendingGifUniqueId?: string;
   pendingFileId?: string;
 }
 
-export type MyContext = Context & SessionFlavor<SessionData>;
+export type MyContext = Context &
+  SessionFlavor<SessionData> & {
+    // Resolved by scope middleware: group chat_id or session activeScopeId
+    currentScopeId?: string;
+  };
 
 export function createRedisStorage(): RedisAdapter<SessionData> {
-  const redis = new Redis({ host: REDIS_HOST, port: 6379 });
-
-  redis.on("error", (err) => {
-    console.error("[Redis] Connection error:", err);
-  });
-
   return new RedisAdapter<SessionData>({ instance: redis, ttl: 3600 });
 }
 

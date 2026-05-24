@@ -3,7 +3,7 @@ import { setupMeilisearch } from "./meili.js";
 import { startBackupScheduler } from "./backup.js";
 
 async function main(): Promise<void> {
-  console.log("[App] Starting Smart GIF Archive v2.0...");
+  console.log("[App] Starting Gifory...");
 
   await setupMeilisearch();
 

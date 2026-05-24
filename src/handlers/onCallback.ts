@@ -9,6 +9,7 @@ export async function onGifCallback(ctx: MyContext): Promise<void> {
       ctx.session.state = "IDLE";
       ctx.session.pendingGifUniqueId = undefined;
       ctx.session.pendingFileId = undefined;
+      ctx.session.pendingScopeId = undefined;
       await ctx.editMessageText("🚫 Зміни відмінено.");
       break;
     }
@@ -37,6 +38,7 @@ export async function onGifCallback(ctx: MyContext): Promise<void> {
       ctx.session.state = "IDLE";
       ctx.session.pendingGifUniqueId = undefined;
       ctx.session.pendingFileId = undefined;
+      ctx.session.pendingScopeId = undefined;
       await ctx.editMessageText("🚫 Операцію відмінено.");
       break;
     }

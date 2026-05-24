@@ -1,14 +1,16 @@
 import { Api } from "grammy";
-import { ADMIN_IDS /*, USER_IDS */ } from "./config.js";
+import { getScopeAdmins } from "./scopes.js";
 
 export async function broadcastNewGif(
   api: Api,
   authorId: number,
   fileId: string,
   tags: string[],
-  emojis: string[]
+  emojis: string[],
+  scopeId: string
 ): Promise<void> {
-  const recipients = [...ADMIN_IDS /*, ...USER_IDS */].filter((id) => id !== authorId);
+  const allAdmins = await getScopeAdmins(scopeId);
+  const recipients = allAdmins.filter((id) => id !== authorId);
   if (recipients.length === 0) return;
 
   const caption = [

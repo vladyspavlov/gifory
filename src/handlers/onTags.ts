@@ -5,11 +5,11 @@ import { chunkArray } from "../utils/chunks.js";
 
 const TAGS_PER_PAGE = 12;
 
-async function buildTagsPage(page: number): Promise<{
-  text: string;
-  keyboard: InlineKeyboard;
-}> {
-  const facets = await getTagFacets();
+async function buildTagsPage(
+  scopeId: string,
+  page: number
+): Promise<{ text: string; keyboard: InlineKeyboard }> {
+  const facets = await getTagFacets(scopeId);
   const entries = Object.entries(facets).sort((a, b) => b[1] - a[1]);
   const pages = chunkArray(entries, TAGS_PER_PAGE);
   const totalPages = Math.max(pages.length, 1);
@@ -41,15 +41,27 @@ async function buildTagsPage(page: number): Promise<{
 }
 
 export async function onTags(ctx: MyContext): Promise<void> {
-  const { text, keyboard } = await buildTagsPage(0);
+  const scopeId = ctx.currentScopeId;
+
+  if (!scopeId) {
+    await ctx.reply(
+      "Оберіть активну спільноту через /scopes, щоб переглядати теги."
+    );
+    return;
+  }
+
+  const { text, keyboard } = await buildTagsPage(scopeId, 0);
   await ctx.reply(text, { reply_markup: keyboard });
 }
 
 export async function onTagsPageCallback(ctx: MyContext): Promise<void> {
+  const scopeId = ctx.currentScopeId;
+  if (!scopeId) { await ctx.answerCallbackQuery(); return; }
+
   const data = ctx.callbackQuery?.data ?? "";
   const page = parseInt(data.replace("tags:page:", ""), 10);
 
-  const { text, keyboard } = await buildTagsPage(isNaN(page) ? 0 : page);
+  const { text, keyboard } = await buildTagsPage(scopeId, isNaN(page) ? 0 : page);
   await ctx.editMessageText(text, { reply_markup: keyboard });
   await ctx.answerCallbackQuery();
 }

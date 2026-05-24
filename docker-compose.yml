@@ -24,7 +24,6 @@ services:
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       MEILI_HOST: http://meilisearch:7700
-      MEILI_API_KEY: ${MEILI_MASTER_KEY}
-      ADMIN_IDS: ${ADMIN_IDS}
-      USER_IDS: ${USER_IDS}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
       REDIS_HOST: redis
+      # SUPER_ADMIN_ID: ${SUPER_ADMIN_ID}

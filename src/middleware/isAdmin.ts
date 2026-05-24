@@ -1,13 +1,12 @@
 import { NextFunction } from "grammy";
 import { MyContext } from "../session.js";
-import { ADMIN_IDS } from "../config.js";
+import { isAdminOfScope } from "../scopes.js";
 
-/** Пропускає адмінів. Звичайним юзерам повертає повідомлення про відсутність прав */
-export async function isAdmin(
-  ctx: MyContext,
-  next: NextFunction
-): Promise<void> {
-  if (ctx.from && ADMIN_IDS.includes(ctx.from.id)) {
+export async function isAdmin(ctx: MyContext, next: NextFunction): Promise<void> {
+  const userId = ctx.from?.id;
+  const scopeId = ctx.currentScopeId;
+
+  if (userId && scopeId && (await isAdminOfScope(userId, scopeId))) {
     await next();
   } else {
     await ctx.reply(

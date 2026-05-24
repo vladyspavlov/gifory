@@ -2,8 +2,10 @@ import { Meilisearch } from "meilisearch";
 import { MEILI_HOST, MEILI_API_KEY, INDEX_NAME } from "./config.js";
 
 export interface GifDocument {
-  id: string;           // file_unique_id — Primary Key
+  id: string;              // `${scopeId}_${fileUniqueId}` — Primary Key
+  file_unique_id: string;  // Telegram file_unique_id (for dedup within scope)
   file_id: string;
+  scope_id: string;
   tags: string[];
   emojis: string[];
   created_at: number;
@@ -17,23 +19,30 @@ export async function setupMeilisearch(): Promise<void> {
   try {
     await client.createIndex(INDEX_NAME, { primaryKey: "id" });
   } catch {
-    // Індекс вже існує
+    // Index already exists
   }
 
   await gifIndex.updateSearchableAttributes(["tags", "emojis"]);
   await gifIndex.updateSortableAttributes(["created_at"]);
-  await gifIndex.updateFilterableAttributes(["tags"]);
+  await gifIndex.updateFilterableAttributes(["tags", "scope_id"]);
+  await gifIndex.updateFaceting({ maxValuesPerFacet: 1000 });
 
   console.log(`[Meilisearch] Index "${INDEX_NAME}" is ready`);
 }
 
-/** Merge if exists / Create if new. Повертає { isNew } */
+function docId(scopeId: string, fileUniqueId: string): string {
+  return `${scopeId}_${fileUniqueId}`;
+}
+
+/** Merge if exists in scope / Create if new. Returns { isNew } */
 export async function upsertGif(
-  id: string,
+  fileUniqueId: string,
   file_id: string,
   newTags: string[],
-  newEmojis: string[]
+  newEmojis: string[],
+  scopeId: string
 ): Promise<{ isNew: boolean }> {
+  const id = docId(scopeId, fileUniqueId);
   let existing: GifDocument | null = null;
   try {
     existing = await gifIndex.getDocument(id);
@@ -50,7 +59,9 @@ export async function upsertGif(
 
   await gifIndex.addDocuments([{
     id,
+    file_unique_id: fileUniqueId,
     file_id,
+    scope_id: scopeId,
     tags: Array.from(new Set(newTags)),
     emojis: Array.from(new Set(newEmojis)),
     created_at: Date.now(),
@@ -58,12 +69,14 @@ export async function upsertGif(
   return { isNew: true };
 }
 
-/** Повністю замінює теги + емоджі (state: WAITING_TO_REPLACE_TAGS) */
+/** Fully replaces tags + emojis (WAITING_TO_REPLACE_TAGS) */
 export async function replaceTags(
-  id: string,
+  fileUniqueId: string,
   tags: string[],
-  emojis: string[]
+  emojis: string[],
+  scopeId: string
 ): Promise<boolean> {
+  const id = docId(scopeId, fileUniqueId);
   try {
     await gifIndex.getDocument(id);
   } catch {
@@ -77,32 +90,37 @@ export async function replaceTags(
   return true;
 }
 
-/** Зливає нові теги + емоджі з існуючими (state: WAITING_TO_APPEND_TAGS) */
+/** Merges new tags + emojis with existing (WAITING_TO_APPEND_TAGS) */
 export async function appendTags(
-  id: string,
+  fileUniqueId: string,
   newTags: string[],
-  newEmojis: string[]
-): Promise<boolean> {
+  newEmojis: string[],
+  scopeId: string
+): Promise<GifDocument | null> {
+  const id = docId(scopeId, fileUniqueId);
   let existing: GifDocument;
   try {
     existing = await gifIndex.getDocument(id);
   } catch {
-    return false;
+    return null;
   }
-  await gifIndex.updateDocuments([{
+  const updated: GifDocument = {
     ...existing,
     tags: Array.from(new Set([...existing.tags, ...newTags])),
     emojis: Array.from(new Set([...existing.emojis, ...newEmojis])),
-  }]);
-  return true;
+  };
+  await gifIndex.updateDocuments([updated]);
+  return updated;
 }
 
-/** Команда /edit — повна заміна тегів (+ опційно емоджі) */
+/** /edit command — full tag replacement */
 export async function editTags(
-  id: string,
+  fileUniqueId: string,
   tags: string[],
-  emojis?: string[]
+  emojis: string[],
+  scopeId: string
 ): Promise<boolean> {
+  const id = docId(scopeId, fileUniqueId);
   let existing: GifDocument;
   try {
     existing = await gifIndex.getDocument(id);
@@ -112,17 +130,19 @@ export async function editTags(
   await gifIndex.updateDocuments([{
     ...existing,
     tags: Array.from(new Set(tags)),
-    emojis: emojis !== undefined ? Array.from(new Set(emojis)) : existing.emojis,
+    emojis: Array.from(new Set(emojis)),
   }]);
   return true;
 }
 
-/** Переносить теги зі старої гіфки на нову, видаляє стару */
+/** Moves tags from old GIF to new, deletes old */
 export async function replaceGif(
-  oldId: string,
-  newId: string,
-  newFileId: string
+  oldFileUniqueId: string,
+  newFileUniqueId: string,
+  newFileId: string,
+  scopeId: string
 ): Promise<boolean> {
+  const oldId = docId(scopeId, oldFileUniqueId);
   let oldDoc: GifDocument;
   try {
     oldDoc = await gifIndex.getDocument(oldId);
@@ -130,8 +150,10 @@ export async function replaceGif(
     return false;
   }
   await gifIndex.addDocuments([{
-    id: newId,
+    id: docId(scopeId, newFileUniqueId),
+    file_unique_id: newFileUniqueId,
     file_id: newFileId,
+    scope_id: scopeId,
     tags: oldDoc.tags,
     emojis: oldDoc.emojis,
     created_at: Date.now(),
@@ -140,8 +162,12 @@ export async function replaceGif(
   return true;
 }
 
-/** Видаляє гіфку */
-export async function deleteGif(id: string): Promise<boolean> {
+/** Deletes a GIF from the scope */
+export async function deleteGif(
+  fileUniqueId: string,
+  scopeId: string
+): Promise<boolean> {
+  const id = docId(scopeId, fileUniqueId);
   try {
     await gifIndex.getDocument(id);
   } catch {
@@ -151,13 +177,17 @@ export async function deleteGif(id: string): Promise<boolean> {
   return true;
 }
 
-/** Пошук з підтримкою infinite scroll (offset) */
+/** Search across one or more scopes (merged inline search) */
 export async function searchGifs(
   query: string,
+  scopeIds: string[],
   limit = 50,
   offset = 0
 ): Promise<GifDocument[]> {
+  if (scopeIds.length === 0) return [];
+  const filter = scopeIds.map((id) => `scope_id = "${id}"`).join(" OR ");
   const result = await gifIndex.search(query, {
+    filter,
     limit,
     offset,
     sort: ["created_at:desc"],
@@ -165,14 +195,18 @@ export async function searchGifs(
   return result.hits;
 }
 
-/** Всі документи (для бекапу) */
-export async function getAllGifs(): Promise<GifDocument[]> {
+/** All docs in a scope (for backup) */
+export async function getAllGifs(scopeId: string): Promise<GifDocument[]> {
   const all: GifDocument[] = [];
   let offset = 0;
   const batchSize = 1000;
 
   while (true) {
-    const result = await gifIndex.getDocuments({ limit: batchSize, offset });
+    const result = await gifIndex.getDocuments({
+      filter: `scope_id = "${scopeId}"`,
+      limit: batchSize,
+      offset,
+    });
     all.push(...result.results);
     if (result.results.length < batchSize) break;
     offset += batchSize;
@@ -180,8 +214,24 @@ export async function getAllGifs(): Promise<GifDocument[]> {
   return all;
 }
 
-/** Фасетний пошук тегів для /tags каталогу */
-export async function getTagFacets(): Promise<Record<string, number>> {
-  const result = await gifIndex.search("", { facets: ["tags"], limit: 0 });
+/** Tag facets for the /tags catalog (scope-specific) */
+export async function getTagFacets(scopeId: string): Promise<Record<string, number>> {
+  const result = await gifIndex.search("", {
+    filter: `scope_id = "${scopeId}"`,
+    facets: ["tags"],
+    limit: 0,
+  });
   return (result.facetDistribution?.["tags"] ?? {}) as Record<string, number>;
+}
+
+/** Look up a GIF by file_unique_id within a scope */
+export async function getGifInScope(
+  fileUniqueId: string,
+  scopeId: string
+): Promise<GifDocument | null> {
+  try {
+    return await gifIndex.getDocument(docId(scopeId, fileUniqueId));
+  } catch {
+    return null;
+  }
 }
