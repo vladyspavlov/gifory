@@ -7,6 +7,7 @@ import {
   initialSessionData,
 } from "./session.js";
 import { createScope, getScope, syncGroupAdmins, addUserToScope } from "./scopes.js";
+import { getUserLang, t } from "./i18n/index.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { isAdmin } from "./middleware/isAdmin.js";
 import { onAnimation } from "./handlers/onAnimation.js";
@@ -22,6 +23,16 @@ import { onCreateScope } from "./handlers/onCreateScope.js";
 import { onJoinScope } from "./handlers/onJoinScope.js";
 import { onInvite } from "./handlers/onInvite.js";
 import { onScopes, onScopeSetCallback } from "./handlers/onScopes.js";
+import { onLang, onLangSetCallback } from "./handlers/onLang.js";
+import { onHelp } from "./handlers/onHelp.js";
+import { onKeyboardButton } from "./handlers/onKeyboardButton.js";
+import { onChosenInlineResult } from "./handlers/onChosenInlineResult.js";
+import { onStats } from "./handlers/onStats.js";
+import { onMembers } from "./handlers/onMembers.js";
+import { onKick } from "./handlers/onKick.js";
+import { onPromote } from "./handlers/onPromote.js";
+import { onRename } from "./handlers/onRename.js";
+import { getMainKeyboard } from "./keyboard.js";
 
 // ── Scope resolution middleware ─────────────────────────────────────────────
 async function resolveScope(ctx: MyContext, next: NextFunction): Promise<void> {
@@ -47,11 +58,19 @@ async function resolveScope(ctx: MyContext, next: NextFunction): Promise<void> {
       addUserToScope(ctx.from.id, chatId).catch(() => {});
     }
   } else if (chatType === "private") {
-    // Use the session's active scope for private chats
     ctx.currentScopeId = ctx.session?.activeScopeId;
   }
-  // inline_query: no currentScopeId — merged search across user's scopes
+  // inline_query and chosen_inline_result: no currentScopeId — handled per-handler
 
+  await next();
+}
+
+// ── i18n middleware ──────────────────────────────────────────────────────────
+async function i18nMiddleware(ctx: MyContext, next: NextFunction): Promise<void> {
+  const lang = ctx.from
+    ? await getUserLang(ctx.from.id, ctx.from.language_code)
+    : "en";
+  ctx.t = (key, params) => t(lang, key, params);
   await next();
 }
 
@@ -67,44 +86,55 @@ export function createBot(): Bot<MyContext> {
     storage: createRedisStorage(),
   }));
 
-  // ── 3. Scope resolution (needs session to read activeScopeId) ─────────────
+  // ── 3. i18n (needs ctx.from, which is always present after session) ───────
+  bot.use(i18nMiddleware);
+
+  // ── 4. Scope resolution (needs session to read activeScopeId) ─────────────
   bot.use(resolveScope);
 
-  // ── 4. Group lifecycle ────────────────────────────────────────────────────
+  // ── 5. Group lifecycle ────────────────────────────────────────────────────
   bot.on("my_chat_member", onMyChatMember);
 
-  // ── 5. Public commands (all users) ───────────────────────────────────────
+  // ── 6. Inline (public, no scope context needed) ───────────────────────────
   bot.on("inline_query", onInline);
+  bot.on("chosen_inline_result", onChosenInlineResult);
+
+  // ── 7. Public commands (all users) ───────────────────────────────────────
   bot.command("tags", onTags);
   bot.command("scopes", onScopes);
   bot.command("create", onCreateScope);
   bot.command("join", onJoinScope);
+  bot.command("lang", onLang);
+  bot.command("help", onHelp);
   // Deep-link: /start join_<token>
   bot.command("start", async (ctx) => {
     const payload = ctx.match;
     if (payload?.startsWith("join_")) {
       await onJoinScope(ctx);
     } else {
-      await ctx.reply(
-        "👋 Gifory — персональний архів гіфок.\n\n" +
-        "Команди:\n" +
-        "• /create <назва> — створити спільноту\n" +
-        "• /scopes — ваші спільноти\n" +
-        "• /tags — каталог тегів"
-      );
+      await ctx.reply(ctx.t("start_welcome"), { reply_markup: getMainKeyboard(ctx.t) });
     }
   });
   bot.callbackQuery(/^tags:page:\d+$/, onTagsPageCallback);
   bot.callbackQuery("tags:noop", (ctx) => ctx.answerCallbackQuery());
   bot.callbackQuery(/^scope:set:/, onScopeSetCallback);
+  bot.callbackQuery(/^lang:set:/, onLangSetCallback);
 
-  // ── 6. Admin-only (isAdmin gate → adminComposer) ──────────────────────────
+  // ── 8. Keyboard button handler (public, before admin gate) ───────────────
+  bot.on("message:text", onKeyboardButton);
+
+  // ── 9. Admin-only (isAdmin gate → adminComposer) ──────────────────────────
   const adminComposer = new Composer<MyContext>();
   adminComposer.on("message:animation", onAnimation);
   adminComposer.command("edit", onEdit);
   adminComposer.command("del", onDelete);
   adminComposer.command("backup", onBackup);
   adminComposer.command("invite", onInvite);
+  adminComposer.command("stats", onStats);
+  adminComposer.command("members", onMembers);
+  adminComposer.command("kick", onKick);
+  adminComposer.command("promote", onPromote);
+  adminComposer.command("rename", onRename);
   adminComposer.command("syncadmins", async (ctx) => {
     const scopeId = ctx.currentScopeId;
     if (!scopeId) return;
@@ -112,9 +142,9 @@ export function createBot(): Bot<MyContext> {
       const admins = await ctx.getChatAdministrators();
       const adminIds = admins.filter((m) => !m.user.is_bot).map((m) => m.user.id);
       await syncGroupAdmins(scopeId, adminIds);
-      await ctx.reply(`✅ Адміни синхронізовані (${adminIds.length} осіб).`);
+      await ctx.reply(ctx.t("syncadmins_success", { count: adminIds.length }));
     } catch {
-      await ctx.reply("❌ Не вдалося отримати список адмінів.");
+      await ctx.reply(ctx.t("syncadmins_error"));
     }
   });
   adminComposer.callbackQuery(/^gif:/, onGifCallback);
@@ -122,7 +152,7 @@ export function createBot(): Bot<MyContext> {
 
   bot.use(isAdmin, adminComposer);
 
-  // ── 7. Global error handler ───────────────────────────────────────────────
+  // ── 9. Global error handler ───────────────────────────────────────────────
   bot.catch((err) => {
     console.error("[Bot] Unhandled error:", err.message, err.error);
   });
