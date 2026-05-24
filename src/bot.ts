@@ -33,6 +33,7 @@ import { onKick } from "./handlers/onKick.js";
 import { onPromote } from "./handlers/onPromote.js";
 import { onRename } from "./handlers/onRename.js";
 import { getMainKeyboard } from "./keyboard.js";
+import { saveUserProfile } from "./users.js";
 
 // ── Scope resolution middleware ─────────────────────────────────────────────
 async function resolveScope(ctx: MyContext, next: NextFunction): Promise<void> {
@@ -88,6 +89,19 @@ export function createBot(): Bot<MyContext> {
 
   // ── 3. i18n (needs ctx.from, which is always present after session) ───────
   bot.use(i18nMiddleware);
+
+  // ── 3b. Profile cache (fire-and-forget) ───────────────────────────────────
+  bot.use(async (ctx, next) => {
+    if (ctx.from && !ctx.from.is_bot) {
+      saveUserProfile({
+        id: ctx.from.id,
+        first_name: ctx.from.first_name,
+        last_name: ctx.from.last_name,
+        username: ctx.from.username,
+      }).catch(() => {});
+    }
+    await next();
+  });
 
   // ── 4. Scope resolution (needs session to read activeScopeId) ─────────────
   bot.use(resolveScope);

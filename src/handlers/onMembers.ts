@@ -1,5 +1,6 @@
 import { MyContext } from "../session.js";
 import { getScope, getScopeMembers } from "../scopes.js";
+import { getUserProfiles, formatUserLink } from "../users.js";
 
 export async function onMembers(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
@@ -14,12 +15,16 @@ export async function onMembers(ctx: MyContext): Promise<void> {
   const allMembers = await getScopeMembers(scopeId);
   const adminSet = new Set(scope.admin_ids);
   const regularMembers = allMembers.filter((id) => !adminSet.has(id));
-  const total = allMembers.length;
 
-  if (total === 0 && scope.admin_ids.length === 0) {
+  const allIds = [...new Set([...scope.admin_ids, ...allMembers])];
+  const total = allIds.length;
+
+  if (total === 0) {
     await ctx.reply(ctx.t("members_empty"));
     return;
   }
+
+  const profiles = await getUserProfiles(allIds);
 
   const lines: string[] = [ctx.t("members_header", { name: scope.name, count: total })];
 
@@ -27,7 +32,7 @@ export async function onMembers(ctx: MyContext): Promise<void> {
     lines.push("");
     lines.push(ctx.t("members_admins"));
     for (const id of scope.admin_ids) {
-      lines.push(`• <a href="tg://user?id=${id}">${id}</a>`);
+      lines.push(`• ${formatUserLink(id, profiles.get(id) ?? null)}`);
     }
   }
 
@@ -35,7 +40,7 @@ export async function onMembers(ctx: MyContext): Promise<void> {
     lines.push("");
     lines.push(ctx.t("members_users"));
     for (const id of regularMembers) {
-      lines.push(`• <a href="tg://user?id=${id}">${id}</a>`);
+      lines.push(`• ${formatUserLink(id, profiles.get(id) ?? null)}`);
     }
   }
 

@@ -1,12 +1,11 @@
 import { MyContext } from "../session.js";
 import { getScope, isMemberOfScope, removeUserFromScope, revokeAllInvites } from "../scopes.js";
+import { getUserProfile, formatUserLink } from "../users.js";
 
 function parseTargetUserId(ctx: MyContext): number | null {
-  // Reply to a message → use that message's author
   const replyFrom = ctx.message?.reply_to_message?.from;
   if (replyFrom && !replyFrom.is_bot) return replyFrom.id;
 
-  // Explicit argument: /kick 123456789
   const arg = ctx.message?.text?.split(/\s+/)[1];
   if (arg) {
     const id = Number(arg);
@@ -51,5 +50,7 @@ export async function onKick(ctx: MyContext): Promise<void> {
   await removeUserFromScope(targetId, scopeId);
   await revokeAllInvites(scopeId);
 
-  await ctx.reply(ctx.t("kick_success"));
+  const profile = await getUserProfile(targetId);
+  const userLink = formatUserLink(targetId, profile);
+  await ctx.reply(ctx.t("kick_success", { user: userLink }), { parse_mode: "HTML" });
 }

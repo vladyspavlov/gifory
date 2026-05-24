@@ -104,18 +104,20 @@ Always maintain STATUS.md in the project root:
 
 ## Commands
 
+The project runs inside Docker. `npm` is not available on the host; do not run `npm run build`, `npx tsc`, or any other npm commands locally. Build and run are handled inside the container:
+
 ```bash
-# Development (hot reload)
-npm run dev
+# Rebuild and redeploy (runs build inside container)
+sudo docker compose up --build -d
 
-# Production build
-npm run build
-npm start
+# View logs
+sudo docker compose logs -f bot
 
-# Docker (all services: bot + Redis + Meilisearch)
-docker-compose up --build
-docker-compose down
+# Stop all services
+sudo docker compose down
 ```
+
+To verify types before deploying, build the Docker image and check logs for TypeScript errors.
 
 No test suite exists in this project.
 

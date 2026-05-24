@@ -115,14 +115,14 @@ export const en = {
   kick_usage:            "Reply to a message from the user, or: /kick <userId>",
   kick_self:             "You cannot remove yourself from the community.",
   kick_not_member:       "This user is not a member of this community.",
-  kick_success:          "✅ User removed from the community. All pending invite links have been revoked.",
+  kick_success:          "✅ {user} removed from the community. All pending invite links have been revoked.",
   kick_manual_only:      "Member removal is only available for manual communities.",
 
   promote_usage:         "Reply to a message from the user, or: /promote <userId>",
   promote_self:          "You are already an admin.",
   promote_not_member:    "This user is not a member of this community.",
   promote_already_admin: "This user is already an admin.",
-  promote_success:       "✅ User {userId} is now an admin.",
+  promote_success:       "✅ {user} is now an admin.",
   promote_manual_only:   "Admin promotion is only available for manual communities. Use /syncadmins for group scopes.",
 
   rename_usage:   "Usage: /rename <new name>",

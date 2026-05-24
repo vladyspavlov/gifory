@@ -1,5 +1,6 @@
 import { MyContext } from "../session.js";
 import { getScope, isMemberOfScope, promoteToAdmin } from "../scopes.js";
+import { getUserProfile, formatUserLink } from "../users.js";
 
 function parseTargetUserId(ctx: MyContext): number | null {
   const replyFrom = ctx.message?.reply_to_message?.from;
@@ -52,5 +53,8 @@ export async function onPromote(ctx: MyContext): Promise<void> {
   }
 
   await promoteToAdmin(targetId, scopeId);
-  await ctx.reply(ctx.t("promote_success", { userId: targetId }));
+
+  const profile = await getUserProfile(targetId);
+  const userLink = formatUserLink(targetId, profile);
+  await ctx.reply(ctx.t("promote_success", { user: userLink }), { parse_mode: "HTML" });
 }
