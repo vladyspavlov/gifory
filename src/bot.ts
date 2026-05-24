@@ -34,6 +34,8 @@ import { onPromote } from "./handlers/onPromote.js";
 import { onRename } from "./handlers/onRename.js";
 import { getMainKeyboard } from "./keyboard.js";
 import { saveUserProfile } from "./users.js";
+import { trackUser } from "./analytics.js";
+import { onBotStats } from "./handlers/onBotStats.js";
 
 // ── Scope resolution middleware ─────────────────────────────────────────────
 async function resolveScope(ctx: MyContext, next: NextFunction): Promise<void> {
@@ -99,6 +101,7 @@ export function createBot(): Bot<MyContext> {
         last_name: ctx.from.last_name,
         username: ctx.from.username,
       }).catch(() => {});
+      trackUser(ctx.from.id).catch(() => {});
     }
     await next();
   });
@@ -115,6 +118,7 @@ export function createBot(): Bot<MyContext> {
 
   // ── 7. Public commands (all users) ───────────────────────────────────────
   bot.command("tags", onTags);
+  bot.command("botstats", onBotStats);
   bot.command("scopes", onScopes);
   bot.command("create", onCreateScope);
   bot.command("join", onJoinScope);

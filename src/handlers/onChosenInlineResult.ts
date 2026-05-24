@@ -1,5 +1,6 @@
 import { MyContext } from "../session.js";
 import { recordGifUsage } from "../stats.js";
+import { trackUsage } from "../analytics.js";
 
 export async function onChosenInlineResult(ctx: MyContext): Promise<void> {
   const result = ctx.chosenInlineResult;
@@ -11,4 +12,5 @@ export async function onChosenInlineResult(ctx: MyContext): Promise<void> {
 
   const scopeId = resultId.slice(0, sep);
   await recordGifUsage(resultId, scopeId);
+  if (ctx.from) trackUsage(ctx.from.id).catch(() => {});
 }

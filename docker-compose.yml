@@ -28,4 +28,4 @@ services:
       MEILI_HOST: http://meilisearch:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
       REDIS_HOST: redis
-      # SUPER_ADMIN_ID: ${SUPER_ADMIN_ID}
+      SUPER_ADMIN_ID: ${SUPER_ADMIN_ID}

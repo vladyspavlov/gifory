@@ -1,5 +1,6 @@
 import { Meilisearch } from "meilisearch";
 import { MEILI_HOST, MEILI_API_KEY, INDEX_NAME } from "./config.js";
+import { trackGif } from "./analytics.js";
 
 export interface GifDocument {
   id: string;              // `${scopeId}_${fileUniqueId}` — Primary Key
@@ -67,6 +68,7 @@ export async function upsertGif(
     emojis: Array.from(new Set(newEmojis)),
     created_at: Date.now(),
   }]);
+  trackGif(id).catch(() => {});
   return { isNew: true };
 }
 

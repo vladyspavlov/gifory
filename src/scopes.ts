@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { redis } from "./redis.js";
+import { trackScope } from "./analytics.js";
 
 export interface Scope {
   id: string;
@@ -20,6 +21,7 @@ export async function createScope(
   for (const adminId of adminIds) {
     await redis.sadd(`user_scopes:${adminId}`, id);
   }
+  trackScope(id).catch(() => {});
   return scope;
 }
 
