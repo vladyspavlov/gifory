@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - ./redis_data:/data
+
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_ENV: production
+    volumes:
+      - ./meili_data:/meili_data
+
+  bot:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - meilisearch
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_API_KEY: ${MEILI_MASTER_KEY}
+      ADMIN_IDS: ${ADMIN_IDS}
+      USER_IDS: ${USER_IDS}
+      REDIS_HOST: redis

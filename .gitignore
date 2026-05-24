@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment & secrets
+.env
+
+# Runtime data volumes
+meili_data/
+redis_data/
+
+# Logs
+*.log
