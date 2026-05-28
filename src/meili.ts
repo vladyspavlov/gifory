@@ -27,7 +27,7 @@ export async function setupMeilisearch(): Promise<void> {
   await gifIndex.updateSearchableAttributes(["tags", "emojis"]);
   await gifIndex.updateSortableAttributes(["created_at"]);
   await gifIndex.updateFilterableAttributes(["tags", "scope_id", "expired"]);
-  await gifIndex.updateFaceting({ maxValuesPerFacet: 1000 });
+  await gifIndex.updateFaceting({ maxValuesPerFacet: 1000, sortFacetValuesBy: { "*": "count" } });
 
   console.log(`[Meilisearch] Index "${INDEX_NAME}" is ready`);
 }
