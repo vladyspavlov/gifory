@@ -1,184 +1,96 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
-# Global Claude Code Rules
+## What this is
 
-## Session Start Protocol
-At the start of every session:
-1. Read CLAUDE.md fully
-2. Check if .claude/agents/ directory exists and contains agent files
-3. Check if .claude/hooks/ directory exists and contains hook files
-4. Activate the appropriate mode based on what is found (see below)
-5. If STATUS.md exists — read it and continue from where work left off
-6. If STATUS.md does not exist — create it before starting any work
+**Gifory** — a public multi-tenant Telegram bot (grammY + TypeScript) for archiving and inline-searching GIFs. Each community is a **scope** with its own GIF collection, admins, and members. Inline search merges results across every scope the querying user belongs to.
 
----
+**This bot is live in production.** It runs on an Oracle VPS at `/opt/gifory` and serves real users right now. Assume any change you make is one `git pull` away from production — see [Deployment](#deployment).
 
-## Agent Team Mode
-*Active when .claude/agents/ contains agent definition files.*
+## Deployment
 
-- Always delegate tasks to the appropriate specialized agent based on domain
-- Never mix responsibilities between agents
-- Run the code reviewer agent last, before any git commit
-- Do not commit code that has not passed the code reviewer agent
-- Each agent must update STATUS.md after every completed subtask
+Deployment, logs, container health, and anything else touching the Oracle VPS: **use the `oracle-vps` skill** (`.claude/skills/oracle-vps/SKILL.md`). Do not improvise SSH or Docker commands against the server — the skill carries the correct paths, the no-`sudo` rule, and the data directories that must never be deleted.
 
----
-
-## Solo Mode
-*Active when no agent definitions are found.*
-
-- You handle all domains yourself: backend, frontend, database, infra, review
-- After completing each module, do a self-review before committing:
-  - Check for security issues
-  - Check for consistency with CLAUDE.md
-  - Check test coverage
-- Document self-review result in STATUS.md before committing
-
----
-
-## Hooks Mode
-*Active when .claude/hooks/ contains hook files.*
-
-- Read all hook files in .claude/hooks/ to understand what is automated
-- Do not manually perform any action that is already handled by a hook
-- If a hook covers git add, do not run it manually
-- If a hook covers formatting or linting, do not run those manually either
-- Mention active hooks in STATUS.md under a "## Active Automation" section so the next session is aware
-
----
-
-## Mode Combinations
-All modes are independent and can be active simultaneously:
-
-| Agents | Hooks | Behavior |
-|---|---|---|
-| ✅ | ✅ | Agent Team Mode + defer automated tasks to hooks |
-| ✅ | ❌ | Agent Team Mode + handle all automation manually |
-| ❌ | ✅ | Solo Mode + defer automated tasks to hooks |
-| ❌ | ❌ | Solo Mode + handle all automation manually |
-
----
-
-## Session Continuity (all modes)
-
-Always maintain STATUS.md in the project root:
-
-```markdown
-## Last completed
-- [agent or "solo"] [what was done] — [file paths affected]
-
-## In progress
-- [agent or "solo"] [what was being done] — [file paths] — [what exactly was left]
-
-## Next steps (in order)
-1. [agent or "solo"] — [exact task]
-2. [agent or "solo"] — [exact task]
-
-## Blockers
-- [anything unclear or needs a decision]
-
-## Active Automation
-- [hook name] — [what it handles]
-```
-
-### Rules
-- Update STATUS.md after every completed subtask
-- When /status shows context at 70%+, commit current work and update STATUS.md before continuing
-- Always commit completed work before ending a session
-
----
-
-## Git Rules (all modes)
-- Never commit without a code review step (agent or self-review)
-- Only run git add -A manually if no hook already handles it
-- Commit after every completed module, not at the end of everything
-- Use conventional commit messages: feat:, fix:, chore:, docs:
-
----
-
-## File Authoring
-- All markdown files used by Claude Code must be written in English
-- CLAUDE.md, agent definitions, commands, hooks — always English
+Never edit files directly on the VPS. Change → commit → push → pull on the VPS.
 
 ## Commands
 
-The project runs inside Docker. `npm` is not available on the host; do not run `npm run build`, `npx tsc`, or any other npm commands locally. Build and run are handled inside the container:
+The project builds inside Docker; there is no local `node_modules` and **no test suite**.
 
 ```bash
-# Rebuild and redeploy (runs build inside container)
-sudo docker compose up --build -d
-
-# View logs
-sudo docker compose logs -f bot
-
-# Stop all services
-sudo docker compose down
+npm run build     # tsc → dist/  (only if you have deps installed locally)
+npm run dev       # tsx watch src/index.ts
 ```
 
-To verify types before deploying, build the Docker image and check logs for TypeScript errors.
+In practice, type-checking happens in the Docker builder stage: a TypeScript error is a failed image build. Verify a change by building, then reading `docker compose logs bot` (see the skill).
 
-No test suite exists in this project.
+`scripts/migrate.ts` (`npm run migrate`) was a one-shot migration of the pre-scope archive into a "Legacy Archive" scope. It has already run. Do not re-run it.
 
 ## Architecture
 
-Gifory — a public multi-tenant Telegram bot. Each community ("scope") has its own GIF collection and admins. Inline search merges results across all scopes the user belongs to.
+**Request flow** (`src/bot.ts`, in registration order — grammY runs middleware in the order it is registered):
 
-**Request flow:**
 ```
 Telegram update (long polling)
-  → auth middleware (src/middleware/auth.ts) — passthrough
-  → session middleware (Redis, 3600s TTL)
-  → i18n middleware (src/bot.ts) — sets ctx.t() from user's stored lang or Telegram language_code
-  → scope resolution middleware (src/bot.ts) — sets ctx.currentScopeId
-  → public handlers (onInline, onTags, onScopes, onCreateScope, onJoinScope, onLang)
-  → isAdmin gate (src/middleware/isAdmin.ts) — checks scope admin via Redis
-  → admin-only handlers (onAnimation, onText, onCallback, onEdit, onDelete, onBackup, onInvite, onStats, syncadmins)
-  → Meilisearch (full-text search + scope_id filter)
+  → authMiddleware            (src/middleware/auth.ts — passthrough; bot is public)
+  → session                   (Redis, 3600s TTL)
+  → i18nMiddleware            (sets ctx.t() from stored lang → Telegram language_code → "en")
+  → profile cache             (fire-and-forget saveUserProfile + trackUser)
+  → resolveScope              (sets ctx.currentScopeId)
+  → my_chat_member            (group join/leave lifecycle)
+  → inline_query / chosen_inline_result   (no scope context — merges all user scopes)
+  → public commands           (/tags /scopes /create /join /lang /help /start /botstats)
+  → onKeyboardButton          (message:text — reply-keyboard labels, before the admin gate)
+  → isAdmin gate              (src/middleware/isAdmin.ts — scope-specific)
+  → adminComposer             (GIF upload, /edit /del /backup /invite /stats /members
+                               /kick /promote /rename /syncadmins, gif: callbacks, text state machine)
 ```
 
-**Scope resolution:**
-- Group/supergroup chat → `ctx.currentScopeId = String(chat.id)`, scope auto-created on first message
-- Private chat → `ctx.currentScopeId = ctx.session.activeScopeId` (set via `/scopes`)
-- Inline query → no `currentScopeId`; `onInline` fetches all user scopes and merges results
+**Scope resolution** (`resolveScope` in `src/bot.ts`):
+- Group/supergroup → `ctx.currentScopeId = String(chat.id)`; the scope is auto-created on first interaction (Telegram group admins become scope admins, one time only — later changes need `/syncadmins`), and the sender is added as a member.
+- Private chat → `ctx.currentScopeId = ctx.session.activeScopeId`, chosen via `/scopes`.
+- Inline query → **no** `currentScopeId`; `onInline` reads all of the user's scopes and merges hits.
 
-**Services (docker-compose):**
-- `bot` — Node.js 24 Alpine, runs compiled `dist/src/index.js`
-- `redis` — session storage + scope/membership data
-- `meilisearch` — search engine (port 7700)
+**Services** (`docker-compose.yml`, project name `gifory`):
+- `bot` — Node 24 Alpine, runs `dist/src/index.js`
+- `redis` — sessions + all relational-ish state, append-only persistence
+- `meilisearch` — the GIF search index
 
-## Key Files
+## Key files
 
 | File | Role |
-|------|------|
-| `src/index.ts` | Entry point: init Meilisearch, create bot, start backup cron |
-| `src/bot.ts` | Middleware chain, scope resolution middleware, handler registration |
-| `src/scopes.ts` | Scope CRUD, user membership, invite token generation (Redis) |
-| `src/redis.ts` | Shared Redis client (imported by session.ts and scopes.ts) |
-| `src/meili.ts` | All Meilisearch operations — all accept `scopeId` param |
-| `src/session.ts` | Session type (`activeScopeId`, `pendingScopeId`, state machine) + Redis storage; `MyContext` includes `t: TFunction` |
-| `src/config.ts` | Env var loading (`BOT_TOKEN`, `MEILI_MASTER_KEY`) |
-| `src/backup.ts` | Weekly cron (Sunday 03:00) — per-scope backup to first scope admin |
-| `src/i18n/` | Localization: `en.ts`, `uk.ts` (all UI strings), `index.ts` (`t()`, `getUserLang`, `setUserLang`) |
-| `src/stats.ts` | GIF usage tracking: `recordGifUsage()`, `getTopGifs()` using Redis sorted sets |
-| `src/handlers/` | One file per Telegram update type |
+|---|---|
+| `src/index.ts` | Entry: init Meilisearch, create bot, start backup cron, long-poll |
+| `src/bot.ts` | Middleware chain, scope resolution, i18n injection, all handler registration |
+| `src/scopes.ts` | Scope CRUD, membership, admin sync, invite tokens (Redis) |
+| `src/redis.ts` | The single shared `ioredis` client — import this, don't construct new ones |
+| `src/meili.ts` | Every Meilisearch operation; all of them take a `scopeId` |
+| `src/session.ts` | `SessionData`, state machine states, `MyContext` (adds `currentScopeId` + `t`) |
+| `src/config.ts` | Env loading; `BOT_TOKEN` required, everything else defaulted |
+| `src/i18n/` | `en.ts`, `uk.ts` (all UI strings), `index.ts` (`t()`, `getUserLang`, `setUserLang`) |
+| `src/stats.ts` | Per-scope GIF usage (Redis sorted sets) → `/stats` |
+| `src/analytics.ts` | Bot-wide counters (users/usage/scopes/gifs) → `/botstats` |
+| `src/users.ts` | Cached Telegram profiles + `formatUserLink()` for member lists |
+| `src/keyboard.ts` | Persistent reply keyboard |
+| `src/backup.ts` | Weekly cron (Sunday 03:00) — per-scope JSON backup DM'd to the first scope admin |
+| `src/handlers/` | One file per update type / command |
 
-## Data Model
+## Data model
 
 ```typescript
 interface GifDocument {
-  id: string;            // `${scopeId}_${fileUniqueId}` — Meilisearch PK
-  file_unique_id: string; // Telegram file_unique_id (for dedup within scope)
-  file_id: string;        // Telegram file_id for sending
-  scope_id: string;       // owning scope
+  id: string;             // `${scopeId}_${fileUniqueId}` — Meilisearch primary key
+  file_unique_id: string; // Telegram file_unique_id (dedup within a scope)
+  file_id: string;        // Telegram file_id (used to send)
+  scope_id: string;
   tags: string[];
   emojis: string[];
   created_at: number;
 }
 
 interface Scope {
-  id: string;           // chat_id (group) or hex slug (manual)
+  id: string;             // chat_id for groups, hex slug for manual scopes
   name: string;
   type: "group" | "manual";
   admin_ids: number[];
@@ -186,34 +98,46 @@ interface Scope {
 }
 ```
 
+The same GIF in two scopes is **two documents** with different `id`s and the same `file_unique_id`. Never key anything on `file_unique_id` alone.
+
 **Redis keys:**
-- `scope:{id}` → JSON Scope object
-- `user_scopes:{userId}` → Set of scope IDs (drives inline search)
-- `scope_members:{scopeId}` → Set of user IDs (manual scopes)
-- `invite:{token}` → scopeId, TTL 24h
-- `user_lang:{userId}` → "en" or "uk" (explicit override; fallback is Telegram language_code)
-- `stats:total:{scopeId}` → sorted set, member = gifId, score = all-time use count
-- `stats:week:{scopeId}:{YYYY-Www}` → sorted set, member = gifId, score = weekly count, TTL 14 days
 
-## Session State Machine
+| Key | Contents |
+|---|---|
+| `scope:{id}` | JSON `Scope` |
+| `user_scopes:{userId}` | Set of scope IDs — drives inline search |
+| `scope_members:{scopeId}` | Set of user IDs |
+| `invite:{token}` | scopeId, TTL 24h |
+| `scope_invites:{scopeId}` | Set of live tokens (for `/invite` revocation) |
+| `user_lang:{userId}` | `"en"` \| `"uk"` — explicit override only |
+| `user_profile:{userId}` | Cached Telegram profile, TTL 30d |
+| `stats:total:{scopeId}` | Sorted set: member = gifId, score = all-time uses |
+| `stats:week:{scopeId}:{YYYY-Www}` | Same, weekly, TTL 14d |
+| `analytics:{users,usage,scopes,gifs}` | Sorted sets scored by timestamp (period counts) |
 
-States (defined in `src/session.ts`):
-- `IDLE` — default
-- `WAITING_FOR_NEW_TAGS` — GIF sent without tags, waiting for text input
-- `WAITING_TO_REPLACE_TAGS` — replace all tags flow
-- `WAITING_TO_APPEND_TAGS` — append tags flow
+## Session state machine
 
-`pendingScopeId` is saved alongside `pendingGifUniqueId` so the scope context survives the multi-step flow.
+`IDLE` → `WAITING_FOR_NEW_TAGS` (GIF posted with no caption tags) / `WAITING_TO_REPLACE_TAGS` / `WAITING_TO_APPEND_TAGS` (both entered from the duplicate-GIF inline keyboard). `src/handlers/onText.ts` consumes these.
 
-## Auth Model
+`pendingScopeId` is captured alongside `pendingGifUniqueId` so a multi-step flow stays bound to the scope it started in, even if the user switches active scope midway.
 
-- `isAdmin` middleware calls `isAdminOfScope(userId, ctx.currentScopeId)` — scope-specific
-- Group scopes: Telegram group admins are scope admins (synced on join + `/syncadmins`)
-- Manual scopes: creator is admin; others join via invite token (`/invite` → `/join <token>`)
-- All users: inline search, `/tags`, `/scopes`
+## Auth model
 
-## Environment Variables
+- `isAdmin` calls `isAdminOfScope(userId, ctx.currentScopeId)` — permissions are **per scope**, never global.
+- Group scopes: Telegram group admins are synced at scope creation and on `/syncadmins`.
+- Manual scopes: the creator is admin; others join via `/invite` → `/join <token>` or a `/start scope_<id>` deep link.
+- Everyone (no membership needed): inline search of their own scopes, `/tags`, `/scopes`, `/create`, `/join`, `/lang`, `/help`.
+- `SUPER_ADMIN_ID` (optional env) gates `/botstats` only.
 
-See `.env.example`. Required: `BOT_TOKEN`, `MEILI_MASTER_KEY`.  
-Default `MEILI_HOST` is `http://meilisearch:7700`; default `REDIS_HOST` is `redis`.  
-Optional `SUPER_ADMIN_ID` for bot-owner-level operations.
+## Conventions
+
+- ESM throughout — **relative imports must carry the `.js` extension** (`./scopes.js`), even from `.ts` files. `moduleResolution: "NodeNext"`, `strict: true`.
+- **No user-facing string belongs in a handler.** Add the key to both `src/i18n/en.ts` and `src/i18n/uk.ts` and call `ctx.t("key", { params })`. Ukrainian is a first-class locale, not a translation afterthought.
+- New Meilisearch queries must filter by `scope_id`. A missing filter leaks one community's GIFs into another's search.
+- Import the shared client from `src/redis.ts`; don't open new connections.
+- Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`.
+- All markdown in this repo is written in English.
+
+## Session continuity
+
+`STATUS.md` tracks work across sessions (last completed / in progress / next steps / blockers). Read it at session start and update it as work completes.

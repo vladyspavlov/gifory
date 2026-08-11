@@ -11,8 +11,10 @@ dist/
 meili_data/
 redis_data/
 
-# Claude Code local settings
-.claude/
+# Claude Code — track shared skills/agents, ignore local settings
+.claude/*
+!.claude/skills/
+.claude/settings.local.json
 
 # Logs
 *.log
