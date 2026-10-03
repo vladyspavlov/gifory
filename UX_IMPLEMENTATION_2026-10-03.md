@@ -1,6 +1,6 @@
 # Gifory UX implementation — 2026-10-03
 
-Implemented the guided chat design from [the UX review](UX_REVIEW_2026-10-03.md), covering all 25 findings. Changes are local and have not been deployed. The table describes implemented behavior; automated checks do not establish usability on actual Telegram clients.
+Implemented the guided chat design from [the UX review](UX_REVIEW_2026-10-03.md), covering all 25 findings. Deployed to Oracle on 2026-10-04 after the build and 40 automated checks passed. Production verification confirmed healthy services, long polling, scoped queries across all three communities, all 1,487 retained GIF documents and localized Telegram menus/descriptions. The table describes implemented behavior; automated checks do not establish usability on actual Telegram clients.
 
 ## Finding coverage
 

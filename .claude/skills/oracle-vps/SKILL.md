@@ -38,7 +38,9 @@ ssh OracleVPS 'cd /opt/gifory && docker compose up -d --build bot'
 ssh OracleVPS 'cd /opt/gifory && docker compose ps && docker compose logs --tail=100 bot'
 ```
 
-There is no test suite and `npm` is not used on the host — TypeScript is compiled inside the builder stage of the image. A type error surfaces as a **failed image build**, so always read the build output before declaring a deploy successful.
+Run the local regression suite (`npm test` for offline checks; `bash scripts/check.sh` for disposable Docker integration/recovery checks) before deployment. `npm` is not used on the VPS host — TypeScript is compiled inside the builder stage of the image. A type error surfaces as a **failed image build**, so always read the build output before declaring a deploy successful. Verify all three services are healthy, bot polling has started, and restart counts remain stable. Meilisearch's health check uses `127.0.0.1` because `localhost` can resolve to IPv6; the runtime image must let its non-root `node` user read copied application files regardless of checkout permissions.
+
+When the user explicitly requires deployment verification before pushing to GitHub, transfer committed history in a temporary Git bundle and use `git pull --ff-only /tmp/<release>.bundle main` from the clean VPS checkout. Push `main` only after verification succeeds, then fast-forward the VPS from `origin/main`. This transports Git commits, not edited application files.
 
 If the working tree on the VPS is dirty, stop and report it — someone edited production directly. Recover those changes (`git diff` on the VPS) before overwriting them.
 
