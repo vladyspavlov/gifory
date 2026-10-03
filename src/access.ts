@@ -52,10 +52,16 @@ export async function canAdminScope(api: Api, userId: number, scopeId: string): 
 
 export async function getAccessibleScopes(api: Api, userId: number): Promise<Scope[]> {
   const scopes = await getUserScopes(userId);
+  let unavailable = false;
   const accessible = await mapLimit(scopes, 4, async scope => {
     const status = await getScopeAccess(api, userId, scope);
-    if (status === "unavailable") throw new ScopeVerificationError();
+    // An unreachable group must not block other, independently verified communities.
+    // Preserve its membership records and omit it from this request's results.
+    if (status === "unavailable") unavailable = true;
     return status === "allowed" ? scope : null;
   });
-  return accessible.filter((scope): scope is Scope => scope !== null);
+  const verified = accessible.filter((scope): scope is Scope => scope !== null);
+  // Distinguish a total verification outage from having no communities.
+  if (!verified.length && unavailable) throw new ScopeVerificationError();
+  return verified;
 }

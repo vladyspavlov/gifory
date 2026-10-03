@@ -19,6 +19,7 @@ import { onLangSetCallback } from '../dist/src/handlers/onLang.js';
 import { onMyChatMember } from '../dist/src/handlers/onMyChatMember.js';
 import { onBackup } from '../dist/src/handlers/onBackup.js';
 import { onStats } from '../dist/src/handlers/onStats.js';
+import { onHelp } from '../dist/src/handlers/onHelp.js';
 import { broadcastNewGif } from '../dist/src/broadcast.js';
 import { getScopeAccess, getAccessibleScopes, ScopeVerificationError } from '../dist/src/access.js';
 import { t } from '../dist/src/i18n/index.js';
@@ -276,15 +277,43 @@ export async function runUxChecks(parent, { ctx, scopes, meili, redis, createBot
     verifyRendered(language); await redis.del('user_lang:51'); await scopes.setActiveScopeId(51, 'uxa');
   });
 
-  await parent.test('UX: temporary group verification gives retry without deleting memberships', async () => {
+  await parent.test('UX: unreachable groups do not block verified communities or public keyboard navigation', async () => {
     await scopes.addUserToScope(51, '-300');
-    const api = { getChatMember: async () => { throw new Error('rate limited'); } };
+    const api = { getChatMember: async () => { throw new GrammyError('chat not found', { ok: false, error_code: 400, description: 'Bad Request: chat not found' }, 'getChatMember', {}); } };
     assert.equal(await getScopeAccess(api, 51, await scopes.getScope('-300')), 'unavailable');
-    await assert.rejects(getAccessibleScopes(api, 51), ScopeVerificationError);
+    const verifiedIds = (await scopes.getUserScopes(51)).filter(scope => scope.type === 'manual').map(scope => scope.id);
+    assert.deepEqual(new Set((await getAccessibleScopes(api, 51)).map(scope => scope.id)), new Set(verifiedIds));
     assert(await scopes.isMemberOfScope(51, '-300'));
+    for (const locale of ['en', 'uk']) {
+      for (const key of ['btn_communities', 'btn_search', 'btn_tags', 'btn_help', 'btn_home']) {
+        const navigation = make({ api, currentScopeId: undefined, t: (key, params) => t(locale, key, params), message: { text: t(locale, key) } });
+        await onKeyboardButton(navigation, () => { throw new Error('button not handled'); });
+        assert(navigation.replies.length > 0);
+        assert(!text(navigation).includes(t(locale, 'access_unavailable')));
+        assert(!callbacks(navigation).some(data => data.includes('-300')));
+        verifyRendered(navigation);
+      }
+    }
+    await assert.rejects(showCommunity(make({ api }), '-300'), ScopeVerificationError);
     const answers = []; await onInline(make({ api, inlineQuery: { query: '', offset: '' }, answerInlineQuery: async (results, options) => answers.push({ results, options }) }));
-    assert.equal(answers[0].results.length, 0); assert.equal(answers[0].options.button.text, t('en', 'btn_retry'));
+    assert(answers[0].results.length > 0);
+    assert(answers[0].results.every(result => verifiedIds.some(id => result.id.startsWith(`${id}_`))));
+    const scoped = []; await onInline(make({ api, inlineQuery: { query: 'in:-300', offset: '' }, answerInlineQuery: async results => scoped.push(results) }));
+    assert.equal(scoped[0].length, 0);
+    assert(await scopes.isMemberOfScope(51, '-300'));
     await scopes.removeUserFromScope(51, '-300', { protectLastAdmin: false });
+  });
+
+  await parent.test('UX: total group verification outage retains retry and public Help', async () => {
+    await scopes.addUserToScope(57001, '-300');
+    const api = { getChatMember: async () => { throw new Error('rate limited'); } };
+    await assert.rejects(getAccessibleScopes(api, 57001), ScopeVerificationError);
+    const onlyGroup = { api, from: { id: 57001 }, currentScopeId: undefined };
+    const help = make(onlyGroup); await onHelp(help); assert(text(help).includes(t('en', 'help')));
+    const answers = []; await onInline(make({ ...onlyGroup, inlineQuery: { query: '', offset: '' }, answerInlineQuery: async (results, options) => answers.push({ results, options }) }));
+    assert.equal(answers[0].results.length, 0); assert.equal(answers[0].options.button.text, t('en', 'btn_retry'));
+    assert(await scopes.isMemberOfScope(57001, '-300'));
+    await scopes.removeUserFromScope(57001, '-300', { protectLastAdmin: false });
   });
 
   await parent.test('UX: notifications respect preferences, name their source and retain reply context', async () => {
