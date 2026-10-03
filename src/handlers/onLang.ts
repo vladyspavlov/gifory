@@ -1,9 +1,11 @@
 import { InlineKeyboard } from "grammy";
 import { MyContext } from "../session.js";
 import { setUserLang, Lang, t } from "../i18n/index.js";
-import { getMainKeyboard } from "../keyboard.js";
+import { showHome, privateNavigation } from "./onHome.js";
+import { isPrivate } from "../ui.js";
 
 export async function onLang(ctx: MyContext): Promise<void> {
+  if (!isPrivate(ctx)) { await privateNavigation(ctx); return; }
   const keyboard = new InlineKeyboard()
     .text("English 🇬🇧", "lang:set:en")
     .text("Українська 🇺🇦", "lang:set:uk");
@@ -12,6 +14,7 @@ export async function onLang(ctx: MyContext): Promise<void> {
 }
 
 export async function onLangSetCallback(ctx: MyContext): Promise<void> {
+  if (!isPrivate(ctx)) { await privateNavigation(ctx); await ctx.answerCallbackQuery(); return; }
   const data = ctx.callbackQuery?.data ?? "";
   const lang = data.replace("lang:set:", "") as Lang;
 
@@ -28,5 +31,6 @@ export async function onLangSetCallback(ctx: MyContext): Promise<void> {
 
   await ctx.editMessageText(newT("lang_set"));
   await ctx.answerCallbackQuery();
-  await ctx.reply(newT("start_welcome"), { reply_markup: getMainKeyboard(newT) });
+  ctx.t = newT;
+  await showHome(ctx, true);
 }

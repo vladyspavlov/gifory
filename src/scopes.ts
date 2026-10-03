@@ -198,3 +198,42 @@ export async function consumeInviteToken(token: string, userId: number): Promise
   `, 1, `invite:${token}`, token, String(userId)) as string | null;
 }
 export function generateScopeId(): string { return randomBytes(6).toString("hex"); }
+
+/** Manual community admins have equal authority; never remove the final admin. */
+export async function changeAdminRole(scopeId: string, actorId: number, targetId: number, handover = false): Promise<boolean> {
+  const result = await redis.eval(scopePrelude + `
+    if scope.type ~= 'manual' or not hasAdmin(ARGV[1]) then return 'forbidden' end
+    if redis.call('SISMEMBER', KEYS[2], ARGV[2]) == 0 then return 'not_member' end
+    if ARGV[3] == '1' then
+      if ARGV[1] == ARGV[2] then return 'forbidden' end
+      if not hasAdmin(ARGV[2]) then table.insert(scope.admin_ids, tonumber(ARGV[2])) end
+      local admins = {}
+      for _, id in ipairs(scope.admin_ids) do if tostring(id) ~= ARGV[1] then table.insert(admins, id) end end
+      scope.admin_ids = admins
+    else
+      if not hasAdmin(ARGV[2]) or #scope.admin_ids <= 1 then return 'last_admin' end
+      local admins = {}
+      for _, id in ipairs(scope.admin_ids) do if tostring(id) ~= ARGV[2] then table.insert(admins, id) end end
+      scope.admin_ids = admins
+    end
+    save()
+    return 'updated'
+  `, 2, `scope:${scopeId}`, `scope_members:${scopeId}`, String(actorId), String(targetId), handover ? "1" : "0");
+  return result === "updated";
+}
+
+/** Called only after scoped media deletion succeeds, under the update/snapshot lock. */
+export async function closeManualScope(scopeId: string, actorId: number): Promise<boolean> {
+  const result = await redis.eval(scopePrelude + `
+    if scope.type ~= 'manual' or #scope.admin_ids ~= 1 or not hasAdmin(ARGV[1]) then return 'forbidden' end
+    for _, user in ipairs(redis.call('SMEMBERS', KEYS[2])) do
+      redis.call('SREM', 'user_scopes:' .. user, scope.id)
+      if redis.call('GET', 'user_active_scope:' .. user) == scope.id then redis.call('DEL', 'user_active_scope:' .. user) end
+    end
+    for _, invite in ipairs(redis.call('SMEMBERS', KEYS[3])) do redis.call('DEL', 'invite:' .. invite) end
+    redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4])
+    redis.call('ZREM', 'analytics:scopes', scope.id)
+    return 'closed'
+  `, 4, `scope:${scopeId}`, `scope_members:${scopeId}`, `scope_invites:${scopeId}`, `stats:total:${scopeId}`, String(actorId));
+  return result === "closed";
+}

@@ -35,8 +35,8 @@ export async function setupMeilisearch(): Promise<void> {
   }
   await waitForWrite(await gifIndex.updateSettings({
     searchableAttributes: ["tags", "emojis"],
-    sortableAttributes: ["created_at"],
-    filterableAttributes: ["tags", "scope_id", "expired"],
+    sortableAttributes: ["created_at", "id"],
+    filterableAttributes: ["tags", "emojis", "scope_id", "expired", "file_unique_id"],
     faceting: { maxValuesPerFacet: 1000, sortFacetValuesBy: { "*": "count" } },
   }));
   console.log(`[Meilisearch] Index "${INDEX_NAME}" is ready`);
@@ -138,11 +138,11 @@ export async function deleteGif(fileUniqueId: string, scopeId: string): Promise<
   });
 }
 
-export async function searchGifs(query: string, scopeIds: string[], limit = 50, offset = 0): Promise<GifDocument[]> {
+export async function searchGifs(query: string, scopeIds: string[], limit = 50, offset = 0, distinct = false): Promise<GifDocument[]> {
   if (scopeIds.length === 0) return [];
   const result = await gifIndex.search(query, {
     filter: `(${scopeIds.map(scopeFilter).join(" OR ")}) AND ${visibleFilter}`,
-    limit, offset, sort: ["created_at:desc"],
+    limit, offset, sort: ["created_at:desc", "id:asc"], ...(distinct ? { distinct: "file_unique_id" } : {}),
   });
   return result.hits;
 }
@@ -180,9 +180,20 @@ export async function getAllGifs(scopeId: string): Promise<GifDocument[]> {
 
 export async function getTagFacets(scopeId: string): Promise<Record<string, number>> {
   const result = await gifIndex.search("", {
-    filter: `${scopeFilter(scopeId)} AND ${visibleFilter}`, facets: ["tags"], limit: 0,
+    filter: `${scopeFilter(scopeId)} AND ${visibleFilter}`, facets: ["tags", "emojis"], limit: 0,
   });
-  return result.facetDistribution?.tags ?? {};
+  return { ...result.facetDistribution?.tags, ...result.facetDistribution?.emojis };
+}
+
+export async function getArchivePage(scopeId: string, page = 0, pageSize = 8, includeExpired = false): Promise<{ gifs: GifDocument[]; total: number }> {
+  const filter = includeExpired ? scopeFilter(scopeId) : `${scopeFilter(scopeId)} AND ${visibleFilter}`;
+  // Document browsing is not capped by the inline search engine's maxTotalHits.
+  const result = await gifIndex.getDocuments({ filter, sort: ["created_at:desc", "id:asc"], limit: pageSize, offset: page * pageSize });
+  return { gifs: result.results, total: result.total };
+}
+
+export async function deleteScopeGifs(scopeId: string): Promise<void> {
+  await inScope(scopeId, async () => { await waitForWrite(await gifIndex.deleteDocuments({ filter: scopeFilter(scopeId) })); });
 }
 
 export async function getSearchBackupMetadata() {

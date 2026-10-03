@@ -8,7 +8,24 @@ export type SessionState =
   | "WAITING_FOR_GIF_ACTION"
   | "WAITING_FOR_NEW_TAGS"
   | "WAITING_TO_REPLACE_TAGS"
-  | "WAITING_TO_APPEND_TAGS";
+  | "WAITING_TO_APPEND_TAGS"
+  | "WAITING_FOR_UPLOAD"
+  | "WAITING_FOR_REPLACEMENT"
+  | "WAITING_FOR_NAME";
+
+export type ScopeIntent = "tags" | "add" | "manage" | "members" | "invite" | "stats" | "backup" | "rename";
+export interface Confirmation {
+  token: string;
+  messageId: number;
+  expiresAt: number;
+  scopeId: string;
+  action: "delete" | "kick" | "promote" | "demote" | "handover" | "close" | "edit" | "leave";
+  targetId?: number;
+  gifUniqueId?: string;
+  tags?: string[];
+  emojis?: string[];
+  awaitingName?: boolean;
+}
 
 export interface SessionData {
   state: SessionState;
@@ -23,6 +40,15 @@ export interface SessionData {
   pendingFileId?: string;
   pendingOperationId?: string;
   pendingMessageId?: number;
+  pendingExpiresAt?: number;
+  pendingCaption?: string;
+  pendingIntent?: ScopeIntent;
+  pendingSelectionToken?: string;
+  pendingSelectionMessageId?: number;
+  pendingSelectionExpiresAt?: number;
+  pendingNameAction?: "create" | "rename";
+  paused?: boolean;
+  confirmation?: Confirmation;
 }
 
 export type MyContext = Context &
@@ -54,4 +80,13 @@ export function clearPendingOperation(session: SessionData): void {
   session.pendingFileId = undefined;
   session.pendingOperationId = undefined;
   session.pendingMessageId = undefined;
+  session.pendingExpiresAt = undefined;
+  session.pendingCaption = undefined;
+  session.pendingIntent = undefined;
+  session.pendingSelectionToken = undefined;
+  session.pendingSelectionMessageId = undefined;
+  session.pendingSelectionExpiresAt = undefined;
+  session.pendingNameAction = undefined;
+  session.paused = undefined;
+  session.confirmation = undefined;
 }

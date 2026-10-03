@@ -10,12 +10,8 @@ const locales: Record<Lang, Messages> = { en, uk };
 
 export function t(lang: Lang, key: keyof Messages, params?: Record<string, string | number>): string {
   let str: string = locales[lang][key] ?? locales.en[key] ?? key;
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      str = str.replaceAll(`{${k}}`, String(v));
-    }
-  }
-  return str;
+  // Substitute once so braces inside user-provided names remain literal.
+  return params ? str.replace(/\{(\w+)\}/g, (match, key: string) => params[key] === undefined ? match : String(params[key])) : str;
 }
 
 export async function getUserLang(userId: number, telegramLangCode?: string): Promise<Lang> {

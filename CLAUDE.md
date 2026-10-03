@@ -16,7 +16,7 @@ Never edit files directly on the VPS. Change → commit → push → pull on the
 
 ## Commands
 
-The project builds inside Docker; there is no local `node_modules` and **no test suite**.
+The project builds inside Docker; dependencies can be installed locally with `npm ci`. A regression suite now exists (`npm test` for offline checks; `bash scripts/check.sh` for Docker-based integration and recovery checks).
 
 ```bash
 npm run build     # tsc → dist/  (only if you have deps installed locally)
@@ -33,24 +33,27 @@ In practice, type-checking happens in the Docker builder stage: a TypeScript err
 
 ```
 Telegram update (long polling)
+  → state snapshot lock       (src/state.ts — serializes updates with backup capture)
   → authMiddleware            (src/middleware/auth.ts — passthrough; bot is public)
-  → session                   (Redis, 3600s TTL)
+  → session                   (Redis, 3600s TTL; per-chat privately, per-chat/sender in groups)
   → i18nMiddleware            (sets ctx.t() from stored lang → Telegram language_code → "en")
-  → profile cache             (fire-and-forget saveUserProfile + trackUser)
+  → profile cache             (awaited saveUserProfile + trackUser for consistent snapshots)
   → resolveScope              (sets ctx.currentScopeId)
-  → my_chat_member            (group join/leave lifecycle)
+  → my_chat_member / chat_member (bot lifecycle + user joins/departures/admin changes)
   → inline_query / chosen_inline_result   (no scope context — merges all user scopes)
-  → public commands           (/tags /scopes /create /join /lang /help /start /botstats)
+  → public navigation         (/home /search /settings /cancel plus existing public commands)
   → onKeyboardButton          (message:text — reply-keyboard labels, before the admin gate)
-  → isAdmin gate              (src/middleware/isAdmin.ts — scope-specific)
-  → adminComposer             (GIF upload, /edit /del /backup /invite /stats /members
+  → guided flows/callbacks     (community cards, scoped catalogs/previews, confirmations, naming, retained uploads)
+  → animation handler          (authorizes captured destination; group saving is deliberate)
+  → isAdmin gate              (src/middleware/isAdmin.ts — scope-specific, live Telegram verification for groups)
+  → adminComposer             (/add /manage /edit /del /backup /invite /stats /members
                                /kick /promote /rename /syncadmins, gif: callbacks, text state machine)
 ```
 
 **Scope resolution** (`resolveScope` in `src/bot.ts`):
-- Group/supergroup → `ctx.currentScopeId = String(chat.id)`; the scope is auto-created on first interaction (Telegram group admins become scope admins, one time only — later changes need `/syncadmins`), and the sender is added as a member.
-- Private chat → `ctx.currentScopeId = ctx.session.activeScopeId`, chosen via `/scopes`.
-- Inline query → **no** `currentScopeId`; `onInline` reads all of the user's scopes and merges hits.
+- Group/supergroup → `ctx.currentScopeId = String(chat.id)`; the scope is auto-created on first interaction (Telegram group admins become scope admins; later membership/admin updates and `/syncadmins` keep permissions aligned), and the sender is added as a member.
+- Private chat → `ctx.currentScopeId` comes from `user_active_scope:{userId}`, explicitly chosen with the community card’s destination action. It lives **outside the session on purpose**: the session carries a 1h TTL, which used to reset the user's community roughly once an hour. `SessionData.activeScopeId` survives only as a deprecated migration path.
+- Inline query → **no** `currentScopeId`; `onInline` reads all accessible scopes by default; `in:<scopeId> query` is emitted by community/tag buttons and reauthorized without fallback. Global presentation deduplicates GIFs but preserves the chosen scoped document ID.
 
 **Services** (`docker-compose.yml`, project name `gifory`):
 - `bot` — Node 24 Alpine, runs `dist/src/index.js`
@@ -61,7 +64,7 @@ Telegram update (long polling)
 
 | File | Role |
 |---|---|
-| `src/index.ts` | Entry: init Meilisearch, create bot, start backup cron, long-poll |
+| `src/index.ts` / `src/lifecycle.ts` | Entry and coordinated startup/polling/health/shutdown |
 | `src/bot.ts` | Middleware chain, scope resolution, i18n injection, all handler registration |
 | `src/scopes.ts` | Scope CRUD, membership, admin sync, invite tokens (Redis) |
 | `src/redis.ts` | The single shared `ioredis` client — import this, don't construct new ones |
@@ -70,10 +73,16 @@ Telegram update (long polling)
 | `src/config.ts` | Env loading; `BOT_TOKEN` required, everything else defaulted |
 | `src/i18n/` | `en.ts`, `uk.ts` (all UI strings), `index.ts` (`t()`, `getUserLang`, `setUserLang`) |
 | `src/stats.ts` | Per-scope GIF usage (Redis sorted sets) → `/stats` |
+| `src/broadcast.ts` | DMs scope admins when a new GIF is added |
+| `src/commands.ts` | Publishes the Telegram command menu (per locale, per scope) at startup |
+| `src/utils/target.ts` | Resolves `/kick` and `/promote` targets (reply / user ID / @username) |
 | `src/analytics.ts` | Bot-wide counters (users/usage/scopes/gifs) → `/botstats` |
 | `src/users.ts` | Cached Telegram profiles + `formatUserLink()` for member lists |
-| `src/keyboard.ts` | Persistent reply keyboard |
-| `src/backup.ts` | Weekly cron (Sunday 03:00) — per-scope JSON backup DM'd to the first scope admin |
+| `src/keyboard.ts` | Home reply keyboard (Search, Communities, Help, Settings) |
+| `src/ui.ts` | Shared screen/input helpers, user-bound GIF handles, source-aware reply references |
+| `src/handlers/onHome.ts` / `onNavigation.ts` | Home/settings/search and community action routing |
+| `src/handlers/onManagement.ts` | Scoped GIF browser/previews, confirmations, role handover and manual closure |
+| `src/backup.ts` | Weekly cron (Sunday 03:00 Europe/Kyiv) — full recovery archive to the owner + isolated archives to current scope admins; see BACKUP.md |
 | `src/handlers/` | One file per update type / command |
 
 ## Data model
@@ -87,6 +96,7 @@ interface GifDocument {
   tags: string[];
   emojis: string[];
   created_at: number;
+  expired?: boolean;     // file_id confirmed unreachable; excluded from search
 }
 
 interface Scope {
@@ -107,27 +117,34 @@ The same GIF in two scopes is **two documents** with different `id`s and the sam
 | `scope:{id}` | JSON `Scope` |
 | `user_scopes:{userId}` | Set of scope IDs — drives inline search |
 | `scope_members:{scopeId}` | Set of user IDs |
-| `invite:{token}` | scopeId, TTL 24h |
+| `invite:{token}` | scopeId, single-use, TTL 24h |
 | `scope_invites:{scopeId}` | Set of live tokens (for `/invite` revocation) |
 | `user_lang:{userId}` | `"en"` \| `"uk"` — explicit override only |
+| `user_active_scope:{userId}` | Active scope for private chats — **no TTL**, deliberately outside the session |
 | `user_profile:{userId}` | Cached Telegram profile, TTL 30d |
 | `stats:total:{scopeId}` | Sorted set: member = gifId, score = all-time uses |
 | `stats:week:{scopeId}:{YYYY-Www}` | Same, weekly, TTL 14d |
-| `analytics:{users,usage,scopes,gifs}` | Sorted sets scored by timestamp (period counts) |
+| `analytics:{users,usage,scopes,gifs}` | Sorted sets scored by timestamp (usage events retained 31 days) |
+| `analytics:usage_total` | Persistent all-time GIF usage counter |
+| `notify_muted:{scopeId}:{userId}` | Per-community notification opt-out, no TTL |
+| `ux:gif:{token}` | User-bound scope/GIF preview reference, TTL 1h |
+| `ux:message:{chatId}:{messageId}` | Scoped preview/notification reply reference, TTL 30d |
+| `ux:prompt:{chatId}:{messageId}` | Prompt owner for stale-input recovery, TTL 2h |
+| `ux:commands:{userId}` | Private menu language/role/type cache, TTL 1h |
 
 ## Session state machine
 
-`IDLE` → `WAITING_FOR_NEW_TAGS` (GIF posted with no caption tags) / `WAITING_TO_REPLACE_TAGS` / `WAITING_TO_APPEND_TAGS` (both entered from the duplicate-GIF inline keyboard). `src/handlers/onText.ts` consumes these.
+`IDLE` → `WAITING_FOR_GIF_ACTION` (duplicate-GIF menu) / `WAITING_FOR_NEW_TAGS` (GIF posted with no caption tags) / `WAITING_TO_REPLACE_TAGS` / `WAITING_TO_APPEND_TAGS` (both entered from the duplicate-GIF inline keyboard). `src/handlers/onText.ts` consumes these.
 
-`pendingScopeId` is captured alongside `pendingGifUniqueId` so a multi-step flow stays bound to the scope it started in, even if the user switches active scope midway.
+`pendingScopeId` is captured alongside `pendingGifUniqueId` so a multi-step flow stays bound to the scope it started in, even if the user switches active scope midway. `WAITING_FOR_UPLOAD`, `WAITING_FOR_REPLACEMENT` and `WAITING_FOR_NAME` support guided flows. Incoming private uploads survive community selection and creation. Navigation pauses input; Resume refreshes the prompt, `/cancel` clears it, and prompts expire in 15 minutes. Confirmations carry an expiring token, scope/target and prompt message ID. Group input must reply to the latest prompt for that sender. Ordinary group animations and the bot’s own inline results are ignored. File replacement is explicit; delete/member actions are confirmed.
 
 ## Auth model
 
 - `isAdmin` calls `isAdminOfScope(userId, ctx.currentScopeId)` — permissions are **per scope**, never global.
-- Group scopes: Telegram group admins are synced at scope creation and on `/syncadmins`.
-- Manual scopes: the creator is admin; others join via `/invite` → `/join <token>` or a `/start scope_<id>` deep link.
+- Group scopes: Telegram admins are synced at creation, on membership/admin updates, and on `/syncadmins`; current membership/admin status is checked before access. The bot should be a Telegram group admin for reliable membership queries and updates.
+- Manual scopes: the creator is admin; others join via `/invite` → `/join <token>` by an admin. `/start scope_<id>` opens a scope only after membership verification; it no longer grants access.
 - Everyone (no membership needed): inline search of their own scopes, `/tags`, `/scopes`, `/create`, `/join`, `/lang`, `/help`.
-- `SUPER_ADMIN_ID` (optional env) gates `/botstats` only.
+- `SUPER_ADMIN_ID` gates `/botstats` and receives full recovery archives. It grants no per-scope permissions.
 
 ## Conventions
 
@@ -141,3 +158,10 @@ The same GIF in two scopes is **two documents** with different `id`s and the sam
 ## Session continuity
 
 `STATUS.md` tracks work across sessions (last completed / in progress / next steps / blockers). Read it at session start and update it as work completes.
+
+## Recovery and session isolation
+
+- Private session keys remain chat IDs; group session keys include chat ID and sender ID. Old shared group pending operations are discarded. New GIF callbacks carry a per-operation token and match their prompt message.
+- Weekly full recovery JSON includes Redis DUMP/absolute expiry entries, all scoped GIF documents, and Meilisearch settings/version. Only the configured owner receives full tenant data. Community admins receive isolated scope archives.
+- `scripts/restore.ts` defaults to validation/dry run and requires `--apply` with empty replacement databases at matching engine versions. Production recovery and deployment still use the Oracle VPS skill.
+- Redis usage history is retained for 31 days with all-time count in `analytics:usage_total`. Scope mutations and invite consumption are atomic Lua operations.

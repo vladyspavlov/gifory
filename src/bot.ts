@@ -15,13 +15,14 @@ import {
   addUserToScope,
   getActiveScopeId,
   setActiveScopeId,
+  renameScope,
 } from "./scopes.js";
-import { canAccessScope } from "./access.js";
+import { getScopeAccess, ScopeVerificationError } from "./access.js";
 import { onChatMember } from "./handlers/onChatMember.js";
 import { getUserLang, t } from "./i18n/index.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { isAdmin } from "./middleware/isAdmin.js";
-import { onAnimation } from "./handlers/onAnimation.js";
+import { onAdd, onAnimation } from "./handlers/onAnimation.js";
 import { onText } from "./handlers/onText.js";
 import { onGifCallback } from "./handlers/onCallback.js";
 import { onTags, onTagsPageCallback } from "./handlers/onTags.js";
@@ -34,17 +35,21 @@ import { onCreateScope } from "./handlers/onCreateScope.js";
 import { onJoinScope, onDirectJoinScope } from "./handlers/onJoinScope.js";
 import { onLeave, onLeaveCallback } from "./handlers/onLeave.js";
 import { onInvite } from "./handlers/onInvite.js";
-import { onScopes, onScopeSetCallback } from "./handlers/onScopes.js";
+import { onScopes, onScopeSetCallback, onScopePickCallback } from "./handlers/onScopes.js";
 import { onLang, onLangSetCallback } from "./handlers/onLang.js";
-import { onHelp } from "./handlers/onHelp.js";
+import { onHelp, onHelpTopic } from "./handlers/onHelp.js";
 import { onKeyboardButton } from "./handlers/onKeyboardButton.js";
 import { onChosenInlineResult } from "./handlers/onChosenInlineResult.js";
 import { onStats } from "./handlers/onStats.js";
-import { onMembers, onMembersPageCallback } from "./handlers/onMembers.js";
+import { onMembers, onMembersPageCallback, onMemberCallback } from "./handlers/onMembers.js";
 import { onKick } from "./handlers/onKick.js";
 import { onPromote } from "./handlers/onPromote.js";
 import { onRename } from "./handlers/onRename.js";
-import { getMainKeyboard } from "./keyboard.js";
+import { onHome, onSearch, onSettings, onCancel } from "./handlers/onHome.js";
+import { onNavigation, onManage } from "./handlers/onNavigation.js";
+import { onArchiveCallback, onConfirmCallback, blockNewOperation } from "./handlers/onManagement.js";
+import { pauseForNavigation, isPrivate, replyScope } from "./ui.js";
+import { InlineKeyboard } from "grammy";
 import { saveUserProfile } from "./users.js";
 import { trackUser } from "./analytics.js";
 import { onBotStats } from "./handlers/onBotStats.js";
@@ -66,6 +71,9 @@ async function resolveScope(ctx: MyContext, next: NextFunction): Promise<void> {
       await createScope(chatId, title, "group", adminIds);
     }
 
+    const existingScope = await getScope(chatId);
+    if (existingScope && "title" in ctx.chat! && existingScope.name !== ctx.chat!.title) await renameScope(chatId, (ctx.chat as { title: string }).title);
+
     // Track user as scope member for inline search
     if (ctx.from && !ctx.chatMember && !ctx.myChatMember && !ctx.from.is_bot && !ctx.message?.sender_chat) {
       await addUserToScope(ctx.from.id, chatId);
@@ -81,14 +89,19 @@ async function resolveScope(ctx: MyContext, next: NextFunction): Promise<void> {
     ctx.session.activeScopeId = undefined;
 
     // Drop a stale pointer to a community the user has since left
-    if (active && !(await canAccessScope(ctx.api, ctx.from.id, active))) {
-      // Do not erase a preference on a transient Telegram verification failure.
-      active = undefined;
+    if (active) {
+      const scope = await getScope(active);
+      const status = scope ? await getScopeAccess(ctx.api, ctx.from.id, scope) : "denied";
+      // Keep the pointer on uncertain verification. Each scoped action checks access again.
+      if (status === "denied") active = undefined;
     }
 
     ctx.currentScopeId = active;
   }
   // inline_query and chosen_inline_result: no currentScopeId — handled per-handler
+  if (/^\/(?:edit|del)(?:@\w+)?(?:\s|$)/.test(ctx.message?.text ?? "")) {
+    ctx.currentScopeId = await replyScope(ctx) ?? ctx.currentScopeId;
+  }
 
   await next();
 }
@@ -144,7 +157,20 @@ export function createBot(): Bot<MyContext> {
   bot.on("inline_query", onInline);
   bot.on("chosen_inline_result", onChosenInlineResult);
 
+  // Navigation pauses pending input while retaining its captured destination.
+  bot.use(async (ctx, next) => {
+    const command = ctx.message?.text?.match(/^\/(\w+)(?:@\w+)?(?:\s|$)/)?.[1];
+    if (command && ["start", "home", "help", "search", "scopes", "tags", "settings", "lang", "join", "backup", "stats", "invite", "members", "manage", "syncadmins"].includes(command)) await pauseForNavigation(ctx);
+    if (command && ["add", "edit", "del", "kick", "promote"].includes(command) && await blockNewOperation(ctx)) return;
+    if (/^(help:|members:page:|member:open:|archive:open:|tags:page:|lang:set:|scope:set:)/.test(ctx.callbackQuery?.data ?? "")) await pauseForNavigation(ctx);
+    await next();
+  });
+
   // ── 7. Public commands (all users) ───────────────────────────────────────
+  bot.command("home", onHome);
+  bot.command("search", onSearch);
+  bot.command("settings", onSettings);
+  bot.command("cancel", onCancel);
   bot.command("tags", onTags);
   bot.command("botstats", onBotStats);
   bot.command("scopes", onScopes);
@@ -161,10 +187,21 @@ export function createBot(): Bot<MyContext> {
     } else if (payload?.startsWith("scope_")) {
       await onDirectJoinScope(ctx, payload.slice(6));
     } else {
-      await ctx.reply(ctx.t("start_welcome"), { reply_markup: getMainKeyboard(ctx.t) });
+      if (payload === "communities") await onScopes(ctx);
+      else if (payload === "search") await onSearch(ctx);
+      else if (payload?.startsWith("backup_")) {
+        ctx.currentScopeId = payload.slice(7);
+        await onBackup(ctx);
+      } else await onHome(ctx);
     }
   });
-  bot.callbackQuery(/^tags:page:\d+$/, onTagsPageCallback);
+  bot.callbackQuery(/^tags:page:/, onTagsPageCallback);
+  bot.callbackQuery(/^nav:/, onNavigation);
+  bot.callbackQuery(/^pick(?:page)?:/, onScopePickCallback);
+  bot.callbackQuery(/^help:/, onHelpTopic);
+  bot.callbackQuery(/^archive:/, onArchiveCallback);
+  bot.callbackQuery(/^member:/, onMemberCallback);
+  bot.callbackQuery(/^confirm:/, onConfirmCallback);
   bot.callbackQuery("tags:noop", (ctx) => ctx.answerCallbackQuery());
   bot.callbackQuery(/^scope:set:/, onScopeSetCallback);
   bot.callbackQuery(/^leave:/, onLeaveCallback);
@@ -177,16 +214,30 @@ export function createBot(): Bot<MyContext> {
   // ── 8. Keyboard button handler (public, before admin gate) ───────────────
   bot.on("message:text", onKeyboardButton);
   bot.on("message:text", async (ctx, next) => {
-    if (ctx.session.state !== "IDLE" && !ctx.message.text.startsWith("/")) {
+    if ((ctx.session.state !== "IDLE" || ctx.session.pendingIntent || ctx.session.confirmation) && !ctx.message.text.startsWith("/")) {
       await onText(ctx);
     } else {
       await next();
     }
   });
 
+  // Upload authorization happens in the handler so an incoming GIF can resume after selection.
+  bot.on("message:animation", onAnimation);
+  const ADMIN_COMMANDS = new Set(["add", "manage", "edit", "del", "backup", "invite", "stats", "members", "kick", "promote", "rename", "syncadmins"]);
+  bot.use(async (ctx, next) => {
+    if (!ctx.message) { await next(); return; }
+    const command = ctx.message.text?.match(/^\/(\w+)/)?.[1];
+    if (command && ADMIN_COMMANDS.has(command)) { await next(); return; }
+    if (ctx.message.text) { await onText(ctx); return; }
+    if (isPrivate(ctx) || (ctx.session.state !== "IDLE" && ctx.message.reply_to_message?.message_id === ctx.session.pendingMessageId)) {
+      await ctx.reply(ctx.t("unsupported_media"), { reply_markup: new InlineKeyboard().text(ctx.t("btn_communities"), "nav:scopes").row().text(ctx.t("btn_resume"), "nav:resume") });
+    }
+  });
+
   // ── 9. Admin-only (isAdmin gate → adminComposer) ──────────────────────────
   const adminComposer = new Composer<MyContext>();
-  adminComposer.on("message:animation", onAnimation);
+  adminComposer.command("add", onAdd);
+  adminComposer.command("manage", onManage);
   adminComposer.command("edit", onEdit);
   adminComposer.command("del", onDelete);
   adminComposer.command("backup", onBackup);
@@ -223,13 +274,16 @@ export function createBot(): Bot<MyContext> {
 
     const ctx = err.ctx;
     // ctx.t is missing if the failure happened before the i18n middleware ran
-    const message = ctx.t ? ctx.t("error_generic") : t("en", "error_generic");
+    const key = err.error instanceof ScopeVerificationError ? "access_unavailable" : "error_generic";
+    const message = ctx.t ? ctx.t(key) : t("en", key);
 
     try {
       if (ctx.callbackQuery) {
         await ctx.answerCallbackQuery({ text: message });
+      } else if (ctx.inlineQuery) {
+        await ctx.answerInlineQuery([], { cache_time: 0, is_personal: true, button: { text: message.slice(0, 64), start_parameter: "search" } });
       } else if (ctx.chat) {
-        await ctx.reply(message);
+        await ctx.reply(message, { reply_markup: new InlineKeyboard().text(ctx.t ? ctx.t("btn_retry") : t("en", "btn_retry"), "nav:home") });
       }
     } catch (replyErr) {
       console.error("[Bot] Failed to notify user of error:", replyErr);

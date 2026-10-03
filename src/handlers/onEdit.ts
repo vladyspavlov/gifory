@@ -1,37 +1,15 @@
-import { MyContext } from "../session.js";
-import { extractTags, extractEmojis } from "../utils/tags.js";
-import { editTags } from "../meili.js";
+import type { MyContext } from "../session.js";
+import { extractTags, extractEmojis, hasInvalidTags, labelsWithinLimit } from "../utils/tags.js";
+import { askConfirmation, blockNewOperation, showArchive, previewGif } from "./onManagement.js";
 import { promptScopeSelect } from "./onScopes.js";
-
 export async function onEdit(ctx: MyContext): Promise<void> {
-  const msg = ctx.message;
-  if (!msg?.text) return;
-
-  const scopeId = ctx.currentScopeId;
-  if (!scopeId) {
-    await promptScopeSelect(ctx);
-    return;
-  }
-
-  const replyAnimation = msg.reply_to_message?.animation;
-  if (!replyAnimation) {
-    await ctx.reply(ctx.t("reply_to_edit"));
-    return;
-  }
-
-  const tags = extractTags(msg.text);
-  const emojis = extractEmojis(msg.text);
-
-  if (tags.length === 0 && emojis.length === 0) {
-    await ctx.reply(ctx.t("no_tags_found"));
-    return;
-  }
-
-  const success = await editTags(replyAnimation.file_unique_id, tags, emojis, scopeId);
-
-  if (success) {
-    await ctx.react("👍");
-  } else {
-    await ctx.reply(ctx.t("gif_not_found"));
-  }
+  if (await blockNewOperation(ctx)) return;
+  if (!ctx.currentScopeId) { await promptScopeSelect(ctx, "manage"); return; }
+  const gif = ctx.message?.reply_to_message?.animation;
+  if (!gif) { await showArchive(ctx, ctx.currentScopeId); return; }
+  if (hasInvalidTags(ctx.message?.text)) { await ctx.reply(ctx.t("gif_tags_invalid", { example: ctx.t("gif_tag_example") })); return; }
+  const tags = extractTags(ctx.message?.text), emojis = extractEmojis(ctx.message?.text);
+  if (!labelsWithinLimit(tags, emojis)) { await ctx.reply(ctx.t("labels_too_many")); return; }
+  if (!tags.length && !emojis.length) { await previewGif(ctx, ctx.currentScopeId, gif.file_unique_id); return; }
+  await askConfirmation(ctx, { action: "edit", scopeId: ctx.currentScopeId, gifUniqueId: gif.file_unique_id, tags, emojis });
 }

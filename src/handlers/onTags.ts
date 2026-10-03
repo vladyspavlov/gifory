@@ -1,66 +1,35 @@
 import { InlineKeyboard } from "grammy";
-import { MyContext } from "../session.js";
-import { getTagFacets } from "../meili.js";
-import { chunkArray } from "../utils/chunks.js";
+import type { MyContext } from "../session.js";
+import { getTagFacets, getArchivePage } from "../meili.js";
 import { promptScopeSelect } from "./onScopes.js";
+import { requireScope, screen, scopeQuery, clip } from "../ui.js";
 
-const TAGS_PER_PAGE = 12;
-
-async function buildTagsPage(
-  ctx: MyContext,
-  scopeId: string,
-  page: number
-): Promise<{ text: string; keyboard: InlineKeyboard }> {
-  const facets = await getTagFacets(scopeId);
-  const entries = Object.entries(facets).sort((a, b) => b[1] - a[1]);
-  const pages = chunkArray(entries, TAGS_PER_PAGE);
-  const totalPages = Math.max(pages.length, 1);
-  const currentPage = Math.max(0, Math.min(page, totalPages - 1));
-  const items = pages[currentPage] ?? [];
-
+export async function showTags(ctx: MyContext, scopeId: string, page = 0): Promise<void> {
+  const scope = await requireScope(ctx, scopeId);
+  if (!scope) return;
+  const entries = Object.entries(await getTagFacets(scopeId)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const pages = Math.max(1, Math.ceil(entries.length / 12));
+  page = Math.max(0, Math.min(page, pages - 1));
   const keyboard = new InlineKeyboard();
-
-  items.forEach(([tag, count], i) => {
-    keyboard.switchInlineCurrent(`${tag} (${count})`, tag);
-    if ((i + 1) % 3 === 0) keyboard.row();
-  });
-
+  for (const [index, [tag, count]] of entries.slice(page * 12, (page + 1) * 12).entries()) {
+    keyboard.switchInlineCurrent(`${clip(tag, 24)} (${count})`, scopeQuery(scopeId, tag));
+    if ((index + 1) % 2 === 0) keyboard.row();
+  }
   keyboard.row();
-  if (currentPage > 0) {
-    keyboard.text(ctx.t("tags_btn_back"), `tags:page:${currentPage - 1}`);
-  }
-  keyboard.text(`${currentPage + 1}/${totalPages}`, "tags:noop");
-  if (currentPage < totalPages - 1) {
-    keyboard.text(ctx.t("tags_btn_forward"), `tags:page:${currentPage + 1}`);
-  }
-
-  const text =
-    entries.length === 0
-      ? ctx.t("tags_empty")
-      : ctx.t("tags_catalog", { count: entries.length, page: currentPage + 1, total: totalPages });
-
-  return { text, keyboard };
+  if (page > 0) keyboard.text(ctx.t("tags_btn_back"), `tags:page:${scopeId}:${page - 1}`);
+  if (page + 1 < pages) keyboard.text(ctx.t("tags_btn_forward"), `tags:page:${scopeId}:${page + 1}`);
+  keyboard.row().text(ctx.t("btn_open"), `nav:open:${scopeId}`);
+  if (!entries.length && scope.admin_ids.includes(ctx.from!.id)) keyboard.row().text(ctx.t("btn_add"), `nav:add:${scopeId}`);
+  const { total } = await getArchivePage(scopeId);
+  await screen(ctx, entries.length ? `${scope.name}\n` + ctx.t("tags_catalog", { count: entries.length, page: page + 1, total: pages }) : ctx.t(total ? "tags_empty" : "archive_empty", { name: scope.name }), keyboard);
 }
-
 export async function onTags(ctx: MyContext): Promise<void> {
-  const scopeId = ctx.currentScopeId;
-  if (!scopeId) {
-    await promptScopeSelect(ctx);
-    return;
-  }
-
-  const { text, keyboard } = await buildTagsPage(ctx, scopeId, 0);
-  await ctx.reply(text, { reply_markup: keyboard });
+  if (!ctx.currentScopeId) { await promptScopeSelect(ctx, "tags"); return; }
+  await showTags(ctx, ctx.currentScopeId);
 }
-
 export async function onTagsPageCallback(ctx: MyContext): Promise<void> {
-  const scopeId = ctx.currentScopeId;
-  if (!scopeId) { await ctx.answerCallbackQuery(); return; }
-
-  const data = ctx.callbackQuery?.data ?? "";
-  const page = parseInt(data.replace("tags:page:", ""), 10);
-
-  const { text, keyboard } = await buildTagsPage(ctx, scopeId, isNaN(page) ? 0 : page);
-  await ctx.editMessageText(text, { reply_markup: keyboard });
+  const match = ctx.callbackQuery?.data?.match(/^tags:page:([^:]+):(\d+)$/);
+  if (!match) { await ctx.answerCallbackQuery({ text: ctx.t("operation_stale"), show_alert: true }); return; }
+  await showTags(ctx, match[1], Number(match[2]));
   await ctx.answerCallbackQuery();
 }

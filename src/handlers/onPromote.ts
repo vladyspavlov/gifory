@@ -1,52 +1,12 @@
-import { MyContext } from "../session.js";
-import { getScope, isMemberOfScope, promoteToAdmin } from "../scopes.js";
-import { getUserProfile, formatUserLink } from "../users.js";
-import { promptScopeSelect } from "./onScopes.js";
+import type { MyContext } from "../session.js";
 import { resolveTargetUser } from "../utils/target.js";
-
+import { askConfirmation, blockNewOperation } from "./onManagement.js";
+import { onMembers } from "./onMembers.js";
+import { promptScopeSelect } from "./onScopes.js";
 export async function onPromote(ctx: MyContext): Promise<void> {
-  const scopeId = ctx.currentScopeId;
-  if (!scopeId) {
-    await promptScopeSelect(ctx);
-    return;
-  }
-
-  const scope = await getScope(scopeId);
-  if (!scope) return;
-
-  if (scope.type !== "manual") {
-    await ctx.reply(ctx.t("promote_manual_only"));
-    return;
-  }
-
-  const targetId = await resolveTargetUser(ctx, scopeId);
-  if (!targetId) {
-    await ctx.reply(ctx.t("promote_usage"));
-    return;
-  }
-
-  if (targetId === ctx.from!.id) {
-    await ctx.reply(ctx.t("promote_self"));
-    return;
-  }
-
-  if (scope.admin_ids.includes(targetId)) {
-    await ctx.reply(ctx.t("promote_already_admin"));
-    return;
-  }
-
-  const isMember = await isMemberOfScope(targetId, scopeId);
-  if (!isMember) {
-    await ctx.reply(ctx.t("promote_not_member"));
-    return;
-  }
-
-  if (!(await promoteToAdmin(targetId, scopeId, ctx.from!.id))) {
-    await ctx.reply(ctx.t("error_generic"));
-    return;
-  }
-
-  const profile = await getUserProfile(targetId);
-  const userLink = formatUserLink(targetId, profile);
-  await ctx.reply(ctx.t("promote_success", { user: userLink }), { parse_mode: "HTML" });
+  if (await blockNewOperation(ctx)) return;
+  if (!ctx.currentScopeId) { await promptScopeSelect(ctx, "members"); return; }
+  const id = await resolveTargetUser(ctx, ctx.currentScopeId);
+  if (!id) { await onMembers(ctx); return; }
+  await askConfirmation(ctx, { action: "promote", scopeId: ctx.currentScopeId, targetId: id });
 }

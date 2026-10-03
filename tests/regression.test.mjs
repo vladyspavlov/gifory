@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { GrammyError } from 'grammy';
+
+
 import { MeilisearchApiError } from 'meilisearch';
 
 // Never allow test imports to load a real Telegram token from .env.
@@ -13,6 +15,8 @@ process.env.SUPER_ADMIN_ID = '999';
 process.env.REDIS_HOST ??= 'gifory-test-redis';
 process.env.MEILI_HOST ??= 'http://gifory-test-meili:7700';
 process.env.MEILI_MASTER_KEY = '';
+const { runUxChecks } = await import('./ux-cases.mjs');
+const { extractTags, hasInvalidTags, labelsWithinLimit } = await import('../dist/src/utils/tags.js');
 const session = await import('../dist/src/session.js');
 const scopes = await import('../dist/src/scopes.js');
 const meili = await import('../dist/src/meili.js');
@@ -47,7 +51,10 @@ function ctx(overrides = {}) {
     reply: async (text, options) => { replies.push({ text, options }); return { message_id: replies.length }; },
     editMessageText: async (text, options) => { replies.push({ text, options }); },
     answerCallbackQuery: async options => { replies.push({ callback: options }); },
-    react: async () => {}, api: {}, ...overrides,
+    editMessageReplyMarkup: async () => {},
+    replyWithAnimation: async (fileId, options) => { replies.push({ animation: fileId, options }); return { message_id: replies.length }; },
+    react: async () => {}, ...overrides,
+    api: { getChatMember: async (_chat, id) => ({ status: "administrator", user: { id } }), setMyCommands: async () => true, ...overrides.api },
   };
 }
 function telegramError(code, description) {
@@ -59,6 +66,7 @@ test('locales, escaped member links, and session isolation', () => {
   for (const key of Object.keys(en)) {
     assert.deepEqual([...en[key].matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort(), [...uk[key].matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort(), key);
   }
+  assert.equal(t('en', 'scope_set_active', { name: '{name}' }), en.scope_set_active);
   const link = formatUserLink(1, { first_name: '<a>&user', id: 1 });
   assert(link.includes('&lt;a&gt;&amp;user'));
   assert.equal(session.getSessionKey(ctx()), '1');
@@ -73,6 +81,15 @@ test('file probes preserve transient failures and accept any successful getFile 
   } }, docs);
   assert.deepEqual(result.valid.map(g => g.file_id), ['1']);
   assert.deepEqual(result.invalid.map(g => g.file_id), ['2']);
+});
+
+test('Unicode tags preserve complete labels and reject punctuation truncation', () => {
+  assert.deepEqual(extractTags('#Радість #радість #café #日本語'), ['#радість', '#café', '#日本語']);
+  assert.equal(hasInvalidTags('#добрий-день'), true);
+  assert.equal(hasInvalidTags('#радість 😂'), false);
+  assert.equal(hasInvalidTags('#️⃣'), false);
+  assert.equal(labelsWithinLimit(['#' + 'a'.repeat(64)], []), false);
+  assert.equal(labelsWithinLimit(Array.from({ length: 33 }, (_, i) => `#tag${i}`), []), false);
 });
 
 test('shared state lock lets backup capture finish before subsequent writes', async () => {
@@ -135,7 +152,7 @@ test('isolated Redis/Meilisearch regression and full recovery', { skip: !integra
       const pending = ctx({ currentScopeId: 'b', session: { state: 'WAITING_TO_REPLACE_TAGS', pendingScopeId: 'a', pendingGifUniqueId: 'legacy' } });
       await onText(pending);
       assert.equal(pending.session.state, 'IDLE');
-      assert(pending.replies[0].text.includes("don't have permission"));
+      assert.equal(pending.replies[0].text, t("en", "scope_gone"));
       assert.deepEqual((await meili.getGifInScope('legacy', 'a')).tags, ['#legacy']);
       const deleted = ctx({ from: { id: 2 }, session: { state: 'WAITING_TO_APPEND_TAGS', pendingScopeId: 'a', pendingGifUniqueId: 'missing' } });
       await onText(deleted);
@@ -154,7 +171,7 @@ test('isolated Redis/Meilisearch regression and full recovery', { skip: !integra
       const current = ctx({ session: { ...pending }, callbackQuery: { data: 'gif:replace_tags:123456abcdef', message: { message_id: 5 } } });
       await onGifCallback(current); assert.equal(current.session.state, 'WAITING_TO_REPLACE_TAGS');
       const duplicate = ctx({ session: { state: 'WAITING_FOR_NEW_TAGS', pendingScopeId: 'a', pendingGifUniqueId: 'wrong', pendingFileId: 'wrong-file' }, message: { animation: { file_unique_id: 'legacy', file_id: 'legacy-file' } } });
-      await onAnimation(duplicate); assert.equal(duplicate.session.state, 'WAITING_FOR_GIF_ACTION'); assert.equal(duplicate.session.pendingFileId, undefined);
+      await onAnimation(duplicate); assert.equal(duplicate.session.state, 'WAITING_FOR_NEW_TAGS'); assert.equal(duplicate.session.pendingFileId, 'wrong-file'); assert.equal(duplicate.session.paused, true);
     });
 
     await parent.test('single-use invites, last-admin concurrent leaves, and no lost admin updates', async () => {
@@ -209,7 +226,7 @@ test('isolated Redis/Meilisearch regression and full recovery', { skip: !integra
       await scopes.renameScope('a', '<bad & scope>', 1);
       const members = ctx({ api: { getChat: async id => ({ id, first_name: 'Test' }) } }); await onMembers(members);
       assert(members.replies[0].text.includes('&lt;bad &amp; scope&gt;'));
-      assert(members.replies[0].options.reply_markup.inline_keyboard.flat().some(button => button.callback_data.includes('members:page:')));
+      assert(members.replies[0].options.reply_markup.inline_keyboard.flat().some(button => button.callback_data?.includes('members:page:')));
       assert(members.replies[0].text.length < 4096);
     });
 
@@ -223,10 +240,16 @@ test('isolated Redis/Meilisearch regression and full recovery', { skip: !integra
       bot.botInfo = { id: 123456, is_bot: true, first_name: 'Test', username: 'testbot' };
       bot.api.config.use(async (_previous, method, payload) => ({ ok: true, result: method === 'getChatMember' ? { status: 'administrator', user: { id: payload.user_id } } : { message_id: 5, chat: { id: payload.chat_id, type: 'supergroup' } } }));
       await scopes.syncGroupAdmins('-100', [1, 2]);
-      for (const id of [1, 2]) await bot.handleUpdate({ update_id: id, message: { message_id: id, date: 1, chat: { id: -100, type: 'supergroup', title: 'Group' }, from: { id, is_bot: false, first_name: 'User' }, animation: { file_id: `gif${id}`, file_unique_id: `unique${id}`, width: 10, height: 10, duration: 1 } } });
+      for (const id of [1, 2]) {
+        const base = { date: 1, chat: { id: -100, type: 'supergroup', title: 'Group' }, from: { id, is_bot: false, first_name: 'User' } };
+        await bot.handleUpdate({ update_id: id * 10, message: { ...base, message_id: id * 10, text: '/add', entities: [{ type: 'bot_command', offset: 0, length: 4 }] } });
+        await bot.handleUpdate({ update_id: id * 10 + 1, message: { ...base, message_id: id * 10 + 1, reply_to_message: { message_id: 5 }, animation: { file_id: `gif${id}`, file_unique_id: `unique${id}`, width: 10, height: 10, duration: 1 } } });
+      }
       const first = JSON.parse(await redis.get('-100:1')); const second = JSON.parse(await redis.get('-100:2'));
       assert.equal(first.pendingGifUniqueId, 'unique1'); assert.equal(second.pendingGifUniqueId, 'unique2');
     });
+
+    await runUxChecks(parent, { ctx, scopes, meili, redis, createBot });
 
     await parent.test('full backup delivery, recipient isolation, gzip reading, and restore round trip', async () => {
       await setUserLang(999, 'uk');
