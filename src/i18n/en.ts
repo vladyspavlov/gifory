@@ -1,8 +1,19 @@
 export const en = {
-  select_scope:        "Select an active community via /scopes.",
-  no_scope_for_gifs:   "Select an active community via /scopes to add GIFs.",
-  no_scope_for_tags:   "Select an active community via /scopes to browse tags.",
-  no_scope_for_stats:  "Select an active community via /scopes to view statistics.",
+  operation_stale: "This button belongs to an expired operation or another user. Send the GIF again.",
+  join_access_required: "Ask a community admin for an invite. Group archives are available only to current group members.",
+  gif_choose_action: "Choose an action using the buttons on the GIF prompt first.",
+  gif_tags_required: "Please enter at least one #tag or emoji.",
+  backup_sent_private: "✅ Backup sent to your private chat.",
+  backup_full_caption: "📦 Gifory full recovery backup — Redis state, scopes, GIFs and search settings. Store this file privately.",
+  backup_weekly_caption: "📦 Weekly backup — {scopeName}\n🗂 GIFs in archive: {count}",
+  backup_too_large: "❌ This archive exceeds the Telegram backup size limit. Contact the bot owner.",
+  user_fallback: "User #{id}",
+  analytics_header: "📊 Bot Analytics",
+  analytics_users: "👥 Users (new)",
+  analytics_usage: "📤 GIF Usage",
+  analytics_scopes: "🗂 Scopes created",
+  analytics_gifs: "🖼 GIFs added",
+  analytics_periods: "Today: {today} · 7d: {week} · 30d: {month} · All-time: {allTime}",
 
   gif_already_exists:  "📌 GIF already in the database!\n🏷 Tags: {tags}\n😀 Emojis: {emojis}",
   gif_btn_replace_all: "🔄 Replace all",
@@ -54,7 +65,6 @@ export const en = {
   scopes_header_active: "📋 Your communities (active: {name}):",
   scopes_header:        "📋 Your communities — tap one to activate:",
   scope_set_active:     "✅ Active community: {name}",
-  scope_set:            "✅ Community selected.",
 
   start_welcome:
     "👋 Welcome to Gifory — a GIF archive for your community.\n\n" +
@@ -62,7 +72,7 @@ export const en = {
     "• Admins add GIFs with #tags to the community archive\n" +
     "• Everyone searches instantly via @giforybot in any chat\n\n" +
     "🚀 Get started:\n" +
-    "• Got an invite? Tap \"🔍 Use these GIFs\" on any Gifory GIF\n" +
+    "• Ask an admin for an invite link to join their community\n" +
     "• Starting fresh? /create <name> — build your own collection\n\n" +
     "/help — all commands",
 
@@ -72,7 +82,8 @@ export const en = {
     "📋 Communities\n" +
     "/scopes — your communities, set active\n" +
     "/create <name> — create a new community\n" +
-    "/join <token> — join via invite link\n\n" +
+    "/join <token> — join via invite link\n" +
+    "/leave — leave a community\n\n" +
     "🏷 Browse\n" +
     "/tags — tag catalog (tap a tag to search)\n\n" +
     "🌐 Settings\n" +
@@ -87,8 +98,8 @@ export const en = {
     "/backup — download full archive as JSON\n" +
     "/stats — top-5 GIFs all-time and this week\n" +
     "/members — list community members\n" +
-    "/kick <userId> — remove a member\n" +
-    "/promote <userId> — promote a member to admin\n" +
+    "/kick @username — remove a member\n" +
+    "/promote @username — promote a member to admin\n" +
     "/rename <name> — rename the community\n" +
     "/syncadmins — re-sync group admins (group only)",
 
@@ -122,13 +133,13 @@ export const en = {
   members_empty:      "👥 No members tracked yet.",
   members_group_note: "(Group community: only members who have sent a message are listed.)",
 
-  kick_usage:       "Reply to a message from the user, or: /kick <userId>",
+  kick_usage:       "Reply to the user's message, or: /kick @username (or user ID)",
   kick_self:        "You cannot remove yourself from the community.",
   kick_not_member:  "This user is not a member of this community.",
   kick_success:     "✅ {user} removed from the community. All pending invite links have been revoked.",
   kick_manual_only: "Member removal is only available for private communities.",
 
-  promote_usage:         "Reply to a message from the user, or: /promote <userId>",
+  promote_usage:         "Reply to the user's message, or: /promote @username (or user ID)",
   promote_self:          "You are already an admin.",
   promote_not_member:    "This user is not a member of this community.",
   promote_already_admin: "This user is already an admin.",
@@ -143,6 +154,37 @@ export const en = {
   stats_total_header: "🏆 Top {count} all-time:",
   stats_week_header:  "📅 Top {count} this week:",
   stats_item:         "{rank}. {tags} — {count}×",
+
+  unknown_input:  "I didn't understand that. /help shows everything I can do.",
+  error_generic:  "❌ Something went wrong. Please try again.",
+  scope_gone:     "This community is no longer available to you.",
+  scope_name_too_long: "Name is too long — {max} characters maximum.",
+  gif_replaced:   "✅ GIF file replaced, tags kept.",
+
+  leave_pick:          "Which community do you want to leave?",
+  leave_confirm:       "Leave \"{name}\"? You will lose access to its GIFs.",
+  leave_confirm_group: "Leave \"{name}\"? You will lose access to its GIFs — but you will rejoin automatically the next time you post in that group.",
+  leave_last_admin:    "You are the only admin of \"{name}\". Promote someone else first, or the community would be left without an admin.",
+  leave_success:       "✅ You left \"{name}\".",
+  leave_btn_confirm:   "✅ Leave",
+
+  cmd_help:       "How the bot works",
+  cmd_scopes:     "Your communities — set the active one",
+  cmd_tags:       "Browse the tag catalog",
+  cmd_create:     "Create a new community",
+  cmd_join:       "Join a community with an invite token",
+  cmd_leave:      "Leave a community",
+  cmd_lang:       "Change language",
+  cmd_edit:       "Reply to a GIF: replace its tags",
+  cmd_del:        "Reply to a GIF: delete it",
+  cmd_invite:     "Create an invite link",
+  cmd_members:    "List community members",
+  cmd_promote:    "Promote a member to admin",
+  cmd_kick:       "Remove a member",
+  cmd_rename:     "Rename the community",
+  cmd_stats:      "Top GIFs, all-time and this week",
+  cmd_backup:     "Download the archive as JSON",
+  cmd_syncadmins: "Re-sync admins from the group",
 };
 
 export type Messages = typeof en;

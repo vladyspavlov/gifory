@@ -26,8 +26,8 @@ export async function onInvite(ctx: MyContext): Promise<void> {
     return;
   }
 
-  const token = await createInviteToken(scopeId);
-  const botInfo = await ctx.api.getMe();
+  const token = await createInviteToken(scopeId, userId);
+  const botInfo = ctx.me;
 
   await ctx.reply(
     ctx.t("invite_link", {

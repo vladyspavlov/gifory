@@ -1,5 +1,5 @@
 import { InlineKeyboard, NextFunction } from "grammy";
-import { MyContext } from "../session.js";
+import { MyContext, clearPendingOperation } from "../session.js";
 import { onTags } from "./onTags.js";
 import { onScopes } from "./onScopes.js";
 import { onHelp } from "./onHelp.js";
@@ -12,10 +12,7 @@ export async function onKeyboardButton(ctx: MyContext, next: NextFunction): Prom
   let matched = true;
   if (text.startsWith("🔍")) {
     // Clear any pending GIF operation so the user isn't stuck
-    ctx.session.state = "IDLE";
-    ctx.session.pendingGifUniqueId = undefined;
-    ctx.session.pendingFileId = undefined;
-    ctx.session.pendingScopeId = undefined;
+    clearPendingOperation(ctx.session);
     await ctx.reply(ctx.t("search_prompt"), {
       reply_markup: new InlineKeyboard().switchInlineCurrent(ctx.t("btn_search_inline"), ""),
     });

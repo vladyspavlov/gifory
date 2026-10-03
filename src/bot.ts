@@ -1,12 +1,23 @@
 import { Bot, Composer, NextFunction, session } from "grammy";
+import { withStateLock } from "./state.js";
 import { BOT_TOKEN } from "./config.js";
 import {
   MyContext,
   SessionData,
   createRedisStorage,
   initialSessionData,
+  getSessionKey,
 } from "./session.js";
-import { createScope, getScope, syncGroupAdmins, addUserToScope } from "./scopes.js";
+import {
+  createScope,
+  getScope,
+  syncGroupAdmins,
+  addUserToScope,
+  getActiveScopeId,
+  setActiveScopeId,
+} from "./scopes.js";
+import { canAccessScope } from "./access.js";
+import { onChatMember } from "./handlers/onChatMember.js";
 import { getUserLang, t } from "./i18n/index.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { isAdmin } from "./middleware/isAdmin.js";
@@ -21,6 +32,7 @@ import { onBackup } from "./handlers/onBackup.js";
 import { onMyChatMember } from "./handlers/onMyChatMember.js";
 import { onCreateScope } from "./handlers/onCreateScope.js";
 import { onJoinScope, onDirectJoinScope } from "./handlers/onJoinScope.js";
+import { onLeave, onLeaveCallback } from "./handlers/onLeave.js";
 import { onInvite } from "./handlers/onInvite.js";
 import { onScopes, onScopeSetCallback } from "./handlers/onScopes.js";
 import { onLang, onLangSetCallback } from "./handlers/onLang.js";
@@ -28,7 +40,7 @@ import { onHelp } from "./handlers/onHelp.js";
 import { onKeyboardButton } from "./handlers/onKeyboardButton.js";
 import { onChosenInlineResult } from "./handlers/onChosenInlineResult.js";
 import { onStats } from "./handlers/onStats.js";
-import { onMembers } from "./handlers/onMembers.js";
+import { onMembers, onMembersPageCallback } from "./handlers/onMembers.js";
 import { onKick } from "./handlers/onKick.js";
 import { onPromote } from "./handlers/onPromote.js";
 import { onRename } from "./handlers/onRename.js";
@@ -39,6 +51,7 @@ import { onBotStats } from "./handlers/onBotStats.js";
 
 // ── Scope resolution middleware ─────────────────────────────────────────────
 async function resolveScope(ctx: MyContext, next: NextFunction): Promise<void> {
+  if (ctx.chatMember || ctx.myChatMember) { await next(); return; }
   const chatType = ctx.chat?.type;
 
   if (chatType === "group" || chatType === "supergroup") {
@@ -47,21 +60,33 @@ async function resolveScope(ctx: MyContext, next: NextFunction): Promise<void> {
 
     // Auto-create scope on first interaction in this group (one-time, no ongoing sync)
     if (!(await getScope(chatId))) {
-      let adminIds: number[] = [];
-      try {
-        const admins = await ctx.getChatAdministrators();
-        adminIds = admins.filter((m) => !m.user.is_bot).map((m) => m.user.id);
-      } catch {}
+      const admins = await ctx.getChatAdministrators();
+      const adminIds = admins.filter((m) => !m.user.is_bot).map((m) => m.user.id);
       const title = "title" in ctx.chat! ? (ctx.chat as any).title ?? chatId : chatId;
       await createScope(chatId, title, "group", adminIds);
     }
 
     // Track user as scope member for inline search
-    if (ctx.from) {
-      addUserToScope(ctx.from.id, chatId).catch(() => {});
+    if (ctx.from && !ctx.chatMember && !ctx.myChatMember && !ctx.from.is_bot && !ctx.message?.sender_chat) {
+      await addUserToScope(ctx.from.id, chatId);
     }
-  } else if (chatType === "private") {
-    ctx.currentScopeId = ctx.session?.activeScopeId;
+  } else if (chatType === "private" && ctx.from) {
+    let active = await getActiveScopeId(ctx.from.id);
+
+    // Migrate sessions written before the active scope moved out of the session
+    if (!active && ctx.session?.activeScopeId) {
+      active = ctx.session.activeScopeId;
+      await setActiveScopeId(ctx.from.id, active);
+    }
+    ctx.session.activeScopeId = undefined;
+
+    // Drop a stale pointer to a community the user has since left
+    if (active && !(await canAccessScope(ctx.api, ctx.from.id, active))) {
+      // Do not erase a preference on a transient Telegram verification failure.
+      active = undefined;
+    }
+
+    ctx.currentScopeId = active;
   }
   // inline_query and chosen_inline_result: no currentScopeId — handled per-handler
 
@@ -78,30 +103,32 @@ async function i18nMiddleware(ctx: MyContext, next: NextFunction): Promise<void>
 }
 
 export function createBot(): Bot<MyContext> {
-  const bot = new Bot<MyContext>(BOT_TOKEN);
+  const bot = new Bot<MyContext>(BOT_TOKEN, { client: { timeoutSeconds: 60 } });
 
   // ── 1. Global access check ────────────────────────────────────────────────
+  bot.use((_ctx, next) => withStateLock(next));
   bot.use(authMiddleware);
 
   // ── 2. Redis sessions ─────────────────────────────────────────────────────
   bot.use(session<SessionData, MyContext>({
     initial: initialSessionData,
     storage: createRedisStorage(),
+    getSessionKey,
   }));
 
   // ── 3. i18n (needs ctx.from, which is always present after session) ───────
   bot.use(i18nMiddleware);
 
-  // ── 3b. Profile cache (fire-and-forget) ───────────────────────────────────
+  // ── 3b. Profile cache (awaited for coordinated snapshots) ───────────────────────────────────
   bot.use(async (ctx, next) => {
     if (ctx.from && !ctx.from.is_bot) {
-      saveUserProfile({
+      await saveUserProfile({
         id: ctx.from.id,
         first_name: ctx.from.first_name,
         last_name: ctx.from.last_name,
         username: ctx.from.username,
       }).catch(() => {});
-      trackUser(ctx.from.id).catch(() => {});
+      await trackUser(ctx.from.id).catch(() => {});
     }
     await next();
   });
@@ -111,6 +138,7 @@ export function createBot(): Bot<MyContext> {
 
   // ── 5. Group lifecycle ────────────────────────────────────────────────────
   bot.on("my_chat_member", onMyChatMember);
+  bot.on("chat_member", onChatMember);
 
   // ── 6. Inline (public, no scope context needed) ───────────────────────────
   bot.on("inline_query", onInline);
@@ -122,6 +150,7 @@ export function createBot(): Bot<MyContext> {
   bot.command("scopes", onScopes);
   bot.command("create", onCreateScope);
   bot.command("join", onJoinScope);
+  bot.command("leave", onLeave);
   bot.command("lang", onLang);
   bot.command("help", onHelp);
   // Deep-link: /start join_<token>
@@ -138,10 +167,22 @@ export function createBot(): Bot<MyContext> {
   bot.callbackQuery(/^tags:page:\d+$/, onTagsPageCallback);
   bot.callbackQuery("tags:noop", (ctx) => ctx.answerCallbackQuery());
   bot.callbackQuery(/^scope:set:/, onScopeSetCallback);
+  bot.callbackQuery(/^leave:/, onLeaveCallback);
   bot.callbackQuery(/^lang:set:/, onLangSetCallback);
+  // Pending operations authorize their captured scope, independently of the active one.
+  bot.callbackQuery(/^gif:/, onGifCallback);
+  bot.callbackQuery(/^members:page:/, onMembersPageCallback);
+  bot.callbackQuery("members:noop", ctx => ctx.answerCallbackQuery());
 
   // ── 8. Keyboard button handler (public, before admin gate) ───────────────
   bot.on("message:text", onKeyboardButton);
+  bot.on("message:text", async (ctx, next) => {
+    if (ctx.session.state !== "IDLE" && !ctx.message.text.startsWith("/")) {
+      await onText(ctx);
+    } else {
+      await next();
+    }
+  });
 
   // ── 9. Admin-only (isAdmin gate → adminComposer) ──────────────────────────
   const adminComposer = new Composer<MyContext>();
@@ -159,6 +200,10 @@ export function createBot(): Bot<MyContext> {
     const scopeId = ctx.currentScopeId;
     if (!scopeId) return;
     try {
+      if (ctx.chat?.type !== "group" && ctx.chat?.type !== "supergroup") {
+        await ctx.reply(ctx.t("syncadmins_error"));
+        return;
+      }
       const admins = await ctx.getChatAdministrators();
       const adminIds = admins.filter((m) => !m.user.is_bot).map((m) => m.user.id);
       await syncGroupAdmins(scopeId, adminIds);
@@ -167,14 +212,28 @@ export function createBot(): Bot<MyContext> {
       await ctx.reply(ctx.t("syncadmins_error"));
     }
   });
-  adminComposer.callbackQuery(/^gif:/, onGifCallback);
   adminComposer.on("message:text", onText);
 
   bot.use(isAdmin, adminComposer);
 
   // ── 9. Global error handler ───────────────────────────────────────────────
-  bot.catch((err) => {
+  // Without a reply here, a failed handler leaves the user staring at silence.
+  bot.catch(async (err) => {
     console.error("[Bot] Unhandled error:", err.message, err.error);
+
+    const ctx = err.ctx;
+    // ctx.t is missing if the failure happened before the i18n middleware ran
+    const message = ctx.t ? ctx.t("error_generic") : t("en", "error_generic");
+
+    try {
+      if (ctx.callbackQuery) {
+        await ctx.answerCallbackQuery({ text: message });
+      } else if (ctx.chat) {
+        await ctx.reply(message);
+      }
+    } catch (replyErr) {
+      console.error("[Bot] Failed to notify user of error:", replyErr);
+    }
   });
 
   return bot;

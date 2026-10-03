@@ -1,23 +1,3 @@
-import { createBot } from "./bot.js";
-import { setupMeilisearch } from "./meili.js";
-import { startBackupScheduler } from "./backup.js";
+import { runBot } from "./lifecycle.js";
 
-async function main(): Promise<void> {
-  console.log("[App] Starting Gifory...");
-
-  await setupMeilisearch();
-
-  const bot = createBot();
-  startBackupScheduler(bot);
-
-  await bot.start({
-    onStart: (info) => {
-      console.log(`[Bot] @${info.username} is running (long polling)`);
-    },
-  });
-}
-
-main().catch((err) => {
-  console.error("[App] Fatal error:", err);
-  process.exit(1);
-});
+runBot().catch(error => { console.error("[App] Fatal error:", error); process.exitCode = 1; });

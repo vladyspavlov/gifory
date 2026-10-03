@@ -1,5 +1,6 @@
 import { MyContext } from "../session.js";
 import { renameScope } from "../scopes.js";
+import { MAX_SCOPE_NAME_LENGTH } from "./onCreateScope.js";
 import { promptScopeSelect } from "./onScopes.js";
 
 export async function onRename(ctx: MyContext): Promise<void> {
@@ -17,6 +18,14 @@ export async function onRename(ctx: MyContext): Promise<void> {
     return;
   }
 
-  await renameScope(scopeId, newName);
+  if (newName.length > MAX_SCOPE_NAME_LENGTH) {
+    await ctx.reply(ctx.t("scope_name_too_long", { max: MAX_SCOPE_NAME_LENGTH }));
+    return;
+  }
+
+  if (!(await renameScope(scopeId, newName, ctx.from!.id))) {
+    await ctx.reply(ctx.t("scope_gone"));
+    return;
+  }
   await ctx.reply(ctx.t("rename_success", { name: newName }));
 }

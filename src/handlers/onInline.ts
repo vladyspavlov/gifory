@@ -1,94 +1,59 @@
-import { Api } from "grammy";
-import { InlineQueryResultCachedMpeg4Gif } from "grammy/types";
-import { MyContext } from "../session.js";
+import { GrammyError, type Api } from "grammy";
+import type { InlineQueryResultCachedMpeg4Gif } from "grammy/types";
+import type { MyContext } from "../session.js";
 import { GifDocument, searchGifs, markGifExpired } from "../meili.js";
-import { getUserScopes } from "../scopes.js";
+import { getAccessibleScopes } from "../access.js";
+import { mapLimit } from "../utils/concurrency.js";
 
-async function findValidGifs(
-  api: Api,
-  gifs: GifDocument[]
-): Promise<{ valid: GifDocument[]; invalid: GifDocument[] }> {
-  const results = await Promise.allSettled(
-    gifs.map(async (gif) => {
-      const file = await api.getFile(gif.file_id);
-      // Animation file_ids (mpeg4_gif) live under animations/ on Telegram's CDN
-      const ok = file.file_path?.startsWith("animations/") ?? false;
-      return { gif, ok };
-    })
-  );
+function invalidFile(error: unknown): boolean {
+  return error instanceof GrammyError && error.error_code === 400 &&
+    /invalid file[_ ]id|wrong file identifier|file[_ ]id.*(?:invalid|expired)|file not found/i.test(error.description);
+}
 
-  const valid: GifDocument[] = [];
-  const invalid: GifDocument[] = [];
-
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i];
-    if (r.status === "fulfilled" && r.value.ok) {
-      valid.push(gifs[i]);
-    } else {
-      invalid.push(gifs[i]);
-    }
-  }
-
-  return { valid, invalid };
+/** Unknown/temporary failures are omitted from this answer, never expired in storage. */
+export async function findValidGifs(api: Api, gifs: GifDocument[]): Promise<{ valid: GifDocument[]; invalid: GifDocument[] }> {
+  const probes = await mapLimit(gifs, 4, async gif => {
+    try { await api.getFile(gif.file_id); return "valid"; }
+    catch (error) { return invalidFile(error) ? "invalid" : "unknown"; }
+  });
+  return {
+    valid: gifs.filter((_, index) => probes[index] === "valid"),
+    invalid: gifs.filter((_, index) => probes[index] === "invalid"),
+  };
 }
 
 export async function onInline(ctx: MyContext): Promise<void> {
   const query = ctx.inlineQuery?.query ?? "";
-  const offset = parseInt(ctx.inlineQuery?.offset || "0", 10);
-  const safeOffset = isNaN(offset) ? 0 : offset;
-
-  const userId = ctx.from!.id;
-  const scopes = await getUserScopes(userId);
-  const scopeIds = scopes.map((s) => s.id);
-
-  if (scopeIds.length === 0) {
+  const offset = Number(ctx.inlineQuery?.offset || "0");
+  const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+  const scopes = await getAccessibleScopes(ctx.api, ctx.from!.id);
+  if (!scopes.length) {
     await ctx.answerInlineQuery([], {
-      cache_time: 10,
-      is_personal: true,
+      cache_time: 0, is_personal: true,
       button: { text: ctx.t("join_community"), start_parameter: "start" },
     });
     return;
   }
-
-  const gifs = await searchGifs(query, scopeIds, 50, safeOffset);
-
-  const botUsername = ctx.me.username ?? "";
-
-  const toResults = (docs: GifDocument[]): InlineQueryResultCachedMpeg4Gif[] =>
-    docs.map((gif) => ({
-      type: "mpeg4_gif",
-      id: gif.id,
-      mpeg4_file_id: gif.file_id,
-      reply_markup: botUsername ? {
-        inline_keyboard: [[{
-          text: ctx.t("inline_join_btn"),
-          url: `https://t.me/${botUsername}?start=scope_${gif.scope_id}`,
-        }]],
-      } : undefined,
-    }));
-
-  const answerOpts = (count: number, cacheTime = 10) => ({
-    cache_time: cacheTime,
-    is_personal: true,
-    next_offset: count === 50 ? String(safeOffset + count) : "",
-  });
-
+  const gifs = await searchGifs(query, scopes.map(scope => scope.id), 50, safeOffset);
+  const results = (docs: GifDocument[]): InlineQueryResultCachedMpeg4Gif[] => docs.map(gif => ({
+    type: "mpeg4_gif", id: gif.id, mpeg4_file_id: gif.file_id,
+    // This link opens the scope only for existing members; it never grants access.
+    reply_markup: ctx.me.username ? { inline_keyboard: [[{
+      text: ctx.t("inline_join_btn"), url: `https://t.me/${ctx.me.username}?start=scope_${gif.scope_id}`,
+    }]] } : undefined,
+  }));
+  // Do not cache access-controlled results after someone leaves a community.
+  // Pagination follows the source page even when temporary failures are omitted.
+  const options = { cache_time: 0, is_personal: true,
+    next_offset: gifs.length === 50 ? String(safeOffset + gifs.length) : "" };
   try {
-    await ctx.answerInlineQuery(toResults(gifs), answerOpts(gifs.length));
-  } catch (err: any) {
-    if (err?.error_code !== 400 || !err?.description?.includes("DOCUMENT_INVALID")) {
-      throw err;
-    }
-
-    // One or more file_ids are not valid mpeg4_gif files. Probe each via getFile,
-    // delete the bad ones from Meilisearch, and re-answer with what's left.
+    await ctx.answerInlineQuery(results(gifs), options);
+  } catch (error) {
+    if (!(error instanceof GrammyError) || error.error_code !== 400 || !error.description.includes("DOCUMENT_INVALID")) throw error;
     const { valid, invalid } = await findValidGifs(ctx.api, gifs);
-
-    for (const gif of invalid) {
-      console.warn(`[Inline] Marking expired GIF ${gif.id} (file_id: ${gif.file_id})`);
-      markGifExpired(gif.id).catch(() => {});
-    }
-
-    await ctx.answerInlineQuery(toResults(valid), answerOpts(valid.length, 0));
+    await Promise.all(invalid.map(gif => markGifExpired(gif)));
+    const retryOptions = { ...options, next_offset: gifs.length === 50
+      ? String(safeOffset + gifs.length - invalid.length) : "" };
+    await ctx.answerInlineQuery(results(valid), retryOptions);
   }
 }

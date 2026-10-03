@@ -12,5 +12,5 @@ export async function onChosenInlineResult(ctx: MyContext): Promise<void> {
 
   const scopeId = resultId.slice(0, sep);
   await recordGifUsage(resultId, scopeId);
-  if (ctx.from) trackUsage(ctx.from.id).catch(() => {});
+  if (ctx.from) await trackUsage(ctx.from.id).catch(() => {});
 }

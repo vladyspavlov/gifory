@@ -1,6 +1,8 @@
 import { InlineKeyboard } from "grammy";
 import { MyContext } from "../session.js";
-import { createScope, generateScopeId } from "../scopes.js";
+import { createScope, generateScopeId, setActiveScopeId } from "../scopes.js";
+
+export const MAX_SCOPE_NAME_LENGTH = 64;
 
 export async function onCreateScope(ctx: MyContext): Promise<void> {
   if (ctx.chat?.type !== "private") {
@@ -16,11 +18,16 @@ export async function onCreateScope(ctx: MyContext): Promise<void> {
     return;
   }
 
+  if (name.length > MAX_SCOPE_NAME_LENGTH) {
+    await ctx.reply(ctx.t("scope_name_too_long", { max: MAX_SCOPE_NAME_LENGTH }));
+    return;
+  }
+
   const userId = ctx.from!.id;
   const scopeId = generateScopeId();
 
   await createScope(scopeId, name, "manual", [userId]);
-  ctx.session.activeScopeId = scopeId;
+  await setActiveScopeId(userId, scopeId);
 
   const keyboard = new InlineKeyboard()
     .switchInlineCurrent(ctx.t("btn_search_gifs"), "");

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { redis } from "./redis.js";
 
 const KEYS = {
@@ -21,8 +22,16 @@ export async function trackUser(userId: number): Promise<void> {
 
 /** Record one inline GIF send. */
 export async function trackUsage(userId: number): Promise<void> {
-  const member = `${Date.now()}:${userId}:${Math.random().toString(36).slice(2, 6)}`;
-  await redis.zadd(KEYS.usage, Date.now(), member);
+  const now = Date.now();
+  await redis.eval(`
+    if redis.call('EXISTS', KEYS[2]) == 0 then
+      redis.call('SET', KEYS[2], redis.call('ZCARD', KEYS[1]))
+    end
+    redis.call('ZADD', KEYS[1], ARGV[1], ARGV[2])
+    redis.call('INCR', KEYS[2])
+    redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[3])
+    return 1
+  `, 2, KEYS.usage, 'analytics:usage_total', now, `${now}:${userId}:${randomUUID()}`, startOf(31));
 }
 
 /** Record a new scope creation. */
@@ -51,7 +60,9 @@ async function countPeriods(key: string): Promise<PeriodStats> {
     redis.zcount(key, todayMs, "+inf"),
     redis.zcount(key, weekMs,  "+inf"),
     redis.zcount(key, monthMs, "+inf"),
-    redis.zcard(key),
+    key === KEYS.usage
+      ? redis.get('analytics:usage_total').then(async total => total === null ? redis.zcard(key) : Number(total))
+      : redis.zcard(key),
   ]);
 
   return { today, week, month, allTime };
@@ -72,4 +83,12 @@ export async function getAnalytics(): Promise<AnalyticsSnapshot> {
     countPeriods(KEYS.gifs),
   ]);
   return { users, usage, scopes, gifs };
+}
+
+export async function trimUsage(): Promise<void> {
+  await redis.eval(`
+    if redis.call('EXISTS', KEYS[2]) == 0 then redis.call('SET', KEYS[2], redis.call('ZCARD', KEYS[1])) end
+    redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+    return 1
+  `, 2, KEYS.usage, 'analytics:usage_total', startOf(31));
 }

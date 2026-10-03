@@ -2,19 +2,7 @@ import { MyContext } from "../session.js";
 import { getScope, isMemberOfScope, promoteToAdmin } from "../scopes.js";
 import { getUserProfile, formatUserLink } from "../users.js";
 import { promptScopeSelect } from "./onScopes.js";
-
-function parseTargetUserId(ctx: MyContext): number | null {
-  const replyFrom = ctx.message?.reply_to_message?.from;
-  if (replyFrom && !replyFrom.is_bot) return replyFrom.id;
-
-  const arg = ctx.message?.text?.split(/\s+/)[1];
-  if (arg) {
-    const id = Number(arg);
-    if (!isNaN(id) && id > 0) return id;
-  }
-
-  return null;
-}
+import { resolveTargetUser } from "../utils/target.js";
 
 export async function onPromote(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
@@ -31,7 +19,7 @@ export async function onPromote(ctx: MyContext): Promise<void> {
     return;
   }
 
-  const targetId = parseTargetUserId(ctx);
+  const targetId = await resolveTargetUser(ctx, scopeId);
   if (!targetId) {
     await ctx.reply(ctx.t("promote_usage"));
     return;
@@ -53,7 +41,10 @@ export async function onPromote(ctx: MyContext): Promise<void> {
     return;
   }
 
-  await promoteToAdmin(targetId, scopeId);
+  if (!(await promoteToAdmin(targetId, scopeId, ctx.from!.id))) {
+    await ctx.reply(ctx.t("error_generic"));
+    return;
+  }
 
   const profile = await getUserProfile(targetId);
   const userLink = formatUserLink(targetId, profile);

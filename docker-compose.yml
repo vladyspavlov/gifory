@@ -2,15 +2,27 @@ name: gifory
 
 services:
   redis:
-    image: redis:alpine
+    image: redis:8.6.2-alpine@sha256:c5e375abb885e6b2021c0377879e4890bf76f9065b8922ffc113f2b226b9fc17
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    mem_limit: ${REDIS_MEMORY_LIMIT:-512m}
+    command: redis-server --appendonly yes --maxmemory ${REDIS_MAX_MEMORY:-256mb} --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - ./redis_data:/data
 
   meilisearch:
-    image: getmeili/meilisearch:latest
+    image: getmeili/meilisearch:v1.42.1@sha256:e13a16ddc45f66fd065b3416230c2669426cfa8907f4a43f14a9c09a17691fa4
     restart: unless-stopped
+    mem_limit: ${MEILI_MEMORY_LIMIT:-1g}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
       MEILI_ENV: production
@@ -20,9 +32,13 @@ services:
   bot:
     build: .
     restart: unless-stopped
+    mem_limit: ${BOT_MEMORY_LIMIT:-512m}
+    stop_grace_period: 60s
     depends_on:
-      - redis
-      - meilisearch
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       MEILI_HOST: http://meilisearch:7700

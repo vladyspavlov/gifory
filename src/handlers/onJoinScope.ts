@@ -1,6 +1,12 @@
 import { InlineKeyboard } from "grammy";
 import { MyContext } from "../session.js";
-import { consumeInviteToken, getScope, addUserToScope } from "../scopes.js";
+import {
+  consumeInviteToken,
+  getScope,
+  addUserToScope,
+  setActiveScopeId,
+} from "../scopes.js";
+import { canAccessScope } from "../access.js";
 import { getMainKeyboard } from "../keyboard.js";
 
 export async function onJoinScope(ctx: MyContext): Promise<void> {
@@ -8,8 +14,8 @@ export async function onJoinScope(ctx: MyContext): Promise<void> {
 
   // Accepts both /join <token> and /start join_<token> (deep link)
   let token = "";
-  const joinMatch = text.match(/^\/join\s+(\S+)/i);
-  const startMatch = text.match(/^\/start\s+join_(\S+)/i);
+  const joinMatch = text.match(/^\/join(?:@\w+)?\s+(\S+)/i);
+  const startMatch = text.match(/^\/start(?:@\w+)?\s+join_(\S+)/i);
 
   if (joinMatch) token = joinMatch[1];
   else if (startMatch) token = startMatch[1];
@@ -28,7 +34,7 @@ export async function onJoinScope(ctx: MyContext): Promise<void> {
   }
 
   const scope = await getScope(scopeId);
-  ctx.session.activeScopeId = scopeId;
+  await setActiveScopeId(userId, scopeId);
 
   const keyboard = new InlineKeyboard()
     .switchInlineCurrent(ctx.t("btn_search_gifs"), "");
@@ -40,15 +46,19 @@ export async function onJoinScope(ctx: MyContext): Promise<void> {
   await ctx.reply(ctx.t("btn_search_gifs"), { reply_markup: keyboard });
 }
 
-/** Handles /start scope_<scopeId> — direct permanent join from inline GIF button. */
+/** Old inline links remain usable by members, but never grant new membership. */
 export async function onDirectJoinScope(ctx: MyContext, scopeId: string): Promise<void> {
   const scope = await getScope(scopeId);
   if (!scope) {
     await ctx.reply(ctx.t("join_invalid"));
     return;
   }
-  await addUserToScope(ctx.from!.id, scopeId);
-  ctx.session.activeScopeId = scopeId;
+  if (!(await canAccessScope(ctx.api, ctx.from!.id, scopeId))) {
+    await ctx.reply(ctx.t("join_access_required"));
+    return;
+  }
+  if (scope.type === "group") await addUserToScope(ctx.from!.id, scopeId);
+  await setActiveScopeId(ctx.from!.id, scopeId);
 
   const keyboard = new InlineKeyboard()
     .switchInlineCurrent(ctx.t("btn_search_gifs"), "");

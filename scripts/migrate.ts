@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   if (DRY_RUN) log("DRY RUN — no writes will be performed.");
 
   const meili = new Meilisearch({ host: MEILI_HOST, apiKey: MEILI_KEY });
-  const redis = new Redis({ host: REDIS_HOST, port: 6379 });
+  const redis = new Redis({ host: REDIS_HOST, port: 6379, protocol: 2 });
 
   redis.on("error", (err: Error) => console.error("[Redis]", err));
 

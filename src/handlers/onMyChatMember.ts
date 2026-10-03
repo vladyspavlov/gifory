@@ -18,7 +18,10 @@ export async function onMyChatMember(ctx: MyContext): Promise<void> {
     try {
       const admins = await ctx.getChatAdministrators();
       adminIds = admins.filter((m) => !m.user.is_bot).map((m) => m.user.id);
-    } catch {}
+    } catch (error) {
+      console.error("[Scopes] Could not fetch group admins:", error);
+      return;
+    }
 
     if (!existing) {
       const title = "title" in chat ? (chat.title ?? chatId) : chatId;

@@ -1,20 +1,8 @@
 import { MyContext } from "../session.js";
-import { getScope, isMemberOfScope, removeUserFromScope, revokeAllInvites } from "../scopes.js";
+import { getScope, isMemberOfScope, removeUserFromScope } from "../scopes.js";
 import { getUserProfile, formatUserLink } from "../users.js";
 import { promptScopeSelect } from "./onScopes.js";
-
-function parseTargetUserId(ctx: MyContext): number | null {
-  const replyFrom = ctx.message?.reply_to_message?.from;
-  if (replyFrom && !replyFrom.is_bot) return replyFrom.id;
-
-  const arg = ctx.message?.text?.split(/\s+/)[1];
-  if (arg) {
-    const id = Number(arg);
-    if (!isNaN(id) && id > 0) return id;
-  }
-
-  return null;
-}
+import { resolveTargetUser } from "../utils/target.js";
 
 export async function onKick(ctx: MyContext): Promise<void> {
   const scopeId = ctx.currentScopeId;
@@ -31,7 +19,7 @@ export async function onKick(ctx: MyContext): Promise<void> {
     return;
   }
 
-  const targetId = parseTargetUserId(ctx);
+  const targetId = await resolveTargetUser(ctx, scopeId);
   if (!targetId) {
     await ctx.reply(ctx.t("kick_usage"));
     return;
@@ -48,8 +36,11 @@ export async function onKick(ctx: MyContext): Promise<void> {
     return;
   }
 
-  await removeUserFromScope(targetId, scopeId);
-  await revokeAllInvites(scopeId);
+  const result = await removeUserFromScope(targetId, scopeId, { actorId: ctx.from!.id, revokeInvites: true });
+  if (result !== "removed") {
+    await ctx.reply(ctx.t(result === "last_admin" ? "leave_last_admin" : "no_permissions", { name: scope.name }));
+    return;
+  }
 
   const profile = await getUserProfile(targetId);
   const userLink = formatUserLink(targetId, profile);

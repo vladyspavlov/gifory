@@ -1,3 +1,4 @@
+import { escapeHtml } from "./utils/html.js";
 import { Api } from "grammy";
 import { redis } from "./redis.js";
 
@@ -70,7 +71,7 @@ export async function fetchAndCacheProfile(
   return null;
 }
 
-export function formatUserLink(userId: number, profile: UserProfile | null): string {
+export function formatUserLink(userId: number, profile: UserProfile | null, fallback = String(userId)): string {
   let label: string;
   if (profile?.username) {
     label = `@${profile.username}`;
@@ -79,7 +80,7 @@ export function formatUserLink(userId: number, profile: UserProfile | null): str
       ? `${profile.first_name} ${profile.last_name}`
       : profile.first_name;
   } else {
-    label = `User #${userId}`;
+    label = fallback;
   }
-  return `<a href="tg://user?id=${userId}">${label}</a>`;
+  return `<a href="tg://user?id=${userId}">${escapeHtml(label.slice(0, 48))}</a>`;
 }
