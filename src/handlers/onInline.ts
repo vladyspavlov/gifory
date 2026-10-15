@@ -53,10 +53,6 @@ export async function onInline(ctx: MyContext): Promise<void> {
   const results = (docs: GifDocument[]): InlineQueryResultCachedMpeg4Gif[] => docs.map(gif => ({
     type: "mpeg4_gif", id: gif.id, mpeg4_file_id: gif.file_id,
     title: clip(scopes.find(scope => scope.id === gif.scope_id)?.name ?? gif.scope_id, 64),
-    // This link opens the scope only for existing members; it never grants access.
-    reply_markup: ctx.me.username ? { inline_keyboard: [[{
-      text: ctx.t("inline_source", { name: clip(scopes.find(scope => scope.id === gif.scope_id)?.name ?? gif.scope_id, 24) }), url: `https://t.me/${ctx.me.username}?start=scope_${gif.scope_id}`,
-    }]] } : undefined,
   }));
   // Do not cache access-controlled results after someone leaves a community.
   // Pagination follows the source page even when temporary failures are omitted.

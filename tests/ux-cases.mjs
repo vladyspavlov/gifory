@@ -68,11 +68,12 @@ export async function runUxChecks(parent, { ctx, scopes, meili, redis, createBot
     const context = make({ inlineQuery: { query: '#same', offset: '' }, answerInlineQuery: async (results, options) => answers.push({ results, options }) });
     await onInline(context); assert.equal(answers[0].results.length, 1);
     assert(['uxa_uxshared', 'uxb_uxshared'].includes(answers[0].results[0].id));
-    assert(answers[0].results[0].reply_markup.inline_keyboard[0][0].text.includes('About'));
+    assert(answers[0].results.every(gif => !Object.hasOwn(gif, 'reply_markup')));
     context.inlineQuery.query = 'in:uxa #same'; await onInline(context);
     assert(answers[1].results.every(gif => gif.id.startsWith('uxa_')));
     context.inlineQuery.query = 'in:uxb #work'; await onInline(context);
     assert.equal(answers[2].results[0].id, 'uxb_uxonlyb');
+    assert(answers.slice(1, 3).every(answer => answer.results.every(gif => !Object.hasOwn(gif, 'reply_markup'))));
     context.inlineQuery.query = 'in:missing #same'; await onInline(context);
     assert.equal(answers[3].results.length, 0);
     assert.equal(answers[3].options.button.start_parameter, 'communities');

@@ -26,7 +26,7 @@
 - solo: member management added — /members, /kick, /promote, /rename (admin-only); scopes.ts extended with getScopeMembers, removeUserFromScope, promoteToAdmin, renameScope, revokeAllInvites
 
 ## In progress
-- (none)
+- 2026-10-15: Removed the community/About button attached to inline GIF results in both locales. Local TypeScript build, offline checks and all 41 disposable Docker integration/recovery checks passed, including button-free global and community-only inline results. Requested commit/push/Oracle deployment verification is in progress.
 
 ## Next steps (in order)
 1. Validate the implemented UX with a separate Telegram test bot and participant walkthroughs; see UX_IMPLEMENTATION_2026-10-03.md. Check mobile English/Ukrainian rendering, group privacy/admin settings, ForceReply, inline destinations and blocked-DM recovery. Notify existing group admins that saving now requires `/add` followed by a reply to the prompt.
