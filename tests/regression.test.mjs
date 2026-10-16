@@ -190,12 +190,12 @@ test('isolated Redis/Meilisearch regression and full recovery', { skip: !integra
       await scopes.syncGroupAdmins('-100', []); assert.deepEqual((await scopes.getScope('-100')).admin_ids, []);
     });
 
-    await parent.test('join links do not grant access; group departure and verification revoke it', async () => {
-      const stranger = ctx({ from: { id: 20 } }); await onDirectJoinScope(stranger, 'a'); assert.equal(await scopes.isMemberOfScope(20, 'a'), false);
+    await parent.test('GIF links join manual communities; group departure and verification revoke it', async () => {
+      const stranger = ctx({ from: { id: 20 } }); await onDirectJoinScope(stranger, 'a'); assert.equal(await scopes.isMemberOfScope(20, 'a'), true);
       await scopes.addUserToScope(20, '-100'); await scopes.setActiveScopeId(20, '-100');
       const groupApi = { getChatMember: async () => ({ status: 'left', user: { id: 20 } }) };
       assert.equal(await access.canAccessScope(groupApi, 20, '-100'), false);
-      assert.equal(await scopes.getActiveScopeId(20), undefined); assert(!(await scopes.getUserScopes(20)).length);
+      assert.equal(await scopes.getActiveScopeId(20), undefined); assert(!(await scopes.getUserScopes(20)).some(scope => scope.id === '-100'));
       await scopes.addUserToScope(21, '-100');
       await onChatMember(ctx({ chatMember: { chat: { id: -100 }, old_chat_member: { status: 'member' }, new_chat_member: { status: 'kicked', user: { id: 21 } } } }));
       assert.equal(await scopes.isMemberOfScope(21, '-100'), false);

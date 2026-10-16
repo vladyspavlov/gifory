@@ -23,10 +23,12 @@ export async function onJoinScope(ctx: MyContext): Promise<void> {
   await showCommunity(ctx, scopeId);
 }
 
-/** Public GIF/about and group opening links reveal no private data and grant no manual membership. */
+/** GIF button links auto-join manual communities; group links require current Telegram membership. */
 export async function onDirectJoinScope(ctx: MyContext, scopeId: string): Promise<void> {
   const scope = await getScope(scopeId);
   if (!scope) { await ctx.reply(ctx.t("scope_gone"), { reply_markup: homeButton(ctx) }); return; }
+  // Manual communities are joined through shared GIF buttons; groups still require Telegram membership.
+  if (scope.type === "manual") await addUserToScope(ctx.from!.id, scopeId);
   const status = await getScopeAccess(ctx.api, ctx.from!.id, scope);
   if (status === "unavailable") throw new ScopeVerificationError();
   if (status !== "allowed") { await ctx.reply(ctx.t("join_access_required"), { reply_markup: new InlineKeyboard().text(ctx.t("btn_join_help"), "nav:join").row().text(ctx.t("btn_home"), "nav:home") }); return; }

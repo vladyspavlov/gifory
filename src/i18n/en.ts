@@ -191,6 +191,7 @@ export const en = {
   "search_example": "happy",
   "search_recovery": "No results? Try another word or emoji, browse a community’s labels, or ask its admin to add GIFs. Community-only searches are opened using that community’s buttons.",
   "inline_help_btn": "Search help & communities",
+  "inline_use_gifs": "🔍 Use these GIFs",
   "inline_scope_denied": "This community is unavailable. Open Communities to select one you can access.",
   "gif_tag_example": "#happy #reaction 😂",
   "gif_tags_invalid": "A hashtag contains punctuation or unsupported characters. Use letters, numbers or underscores, for example: {example}. Nothing was changed.",
